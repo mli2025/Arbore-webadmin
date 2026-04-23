@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>File Input Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #fff;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 20px;
+            background: #2a2a2a;
+            border-radius: 8px;
+        }
+        button {
+            padding: 10px 20px;
+            background: #409eff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #66b1ff;
+        }
+        .result {
+            margin-top: 10px;
+            padding: 10px;
+            background: #3a3a3a;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <h1>File Input Test Page</h1>
+    
+    <div class="test-section">
+        <h2>Test 1: Label + Input (Standard HTML)</h2>
+        <input type="file" id="test1-input" accept=".tar" style="display: none">
+        <label for="test1-input">
+            <button type="button">Test 1: Click me (Label for)</button>
+        </label>
+        <div class="result" id="test1-result">No file selected</div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test 2: Button Click Handler</h2>
+        <input type="file" id="test2-input" accept=".tar" style="display: none">
+        <button type="button" onclick="test2Click()">Test 2: Click me (JS handler)</button>
+        <div class="result" id="test2-result">No file selected</div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test 3: Label with Pointer Events</h2>
+        <input type="file" id="test3-input" accept=".tar" style="display: none">
+        <label for="test3-input" style="display: inline-block; cursor: pointer;">
+            <button type="button" style="pointer-events: none;">Test 3: Click me (Label + pointer-events: none)</button>
+        </label>
+        <div class="result" id="test3-result">No file selected</div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test 4: Direct Input Click (No Button)</h2>
+        <input type="file" id="test4-input" accept=".tar" style="display: none">
+        <button type="button" onclick="test4Click()">Test 4: Click me (Direct input.click())</button>
+        <div class="result" id="test4-result">No file selected</div>
+    </div>
+
+    <script>
+        // Test 1: Label for
+        document.getElementById('test1-input').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            document.getElementById('test1-result').textContent = file ? `Selected: ${file.name}` : 'No file selected';
+        });
+
+        // Test 2: Button click handler
+        function test2Click() {
+            const input = document.getElementById('test2-input');
+            console.log('Test 2: Clicking input...');
+            input.click();
+        }
+        document.getElementById('test2-input').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            document.getElementById('test2-result').textContent = file ? `Selected: ${file.name}` : 'No file selected';
+        });
+
+        // Test 3: Label with pointer-events
+        document.getElementById('test3-input').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            document.getElementById('test3-result').textContent = file ? `Selected: ${file.name}` : 'No file selected';
+        });
+
+        // Test 4: Direct input click
+        function test4Click() {
+            const input = document.getElementById('test4-input');
+            console.log('Test 4: Clicking input directly...');
+            try {
+                input.click();
+                console.log('Test 4: Input clicked successfully');
+            } catch (error) {
+                console.error('Test 4: Error:', error);
+                document.getElementById('test4-result').textContent = 'Error: ' + error.message;
+            }
+        }
+        document.getElementById('test4-input').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            document.getElementById('test4-result').textContent = file ? `Selected: ${file.name}` : 'No file selected';
+        });
+    </script>
+</body>
+</html>
+

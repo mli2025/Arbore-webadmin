@@ -1,0 +1,29 @@
+# Large packaged artifacts (tarballs) — do not push
+init/
+/*.tar
+/*.tar.gz
+/*.tgz
+**/*.tar
+**/*.tar.gz
+**/*.tgz
+
+# Dependencies & local env
+node_modules/
+frontend/node_modules/
+backend/venv/
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+*.so
+.env
+.env.local
+*.log
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+Thumbs.db
+Desktop.ini

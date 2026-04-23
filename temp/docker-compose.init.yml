@@ -1,0 +1,84 @@
+services:
+  postgres-nocobase:
+    image: postgres:16
+    container_name: arbore-postgres-nocobase
+    restart: unless-stopped
+    command: postgres -c wal_level=logical
+    environment:
+      POSTGRES_DB: ${POSTGRES_NOCOBASE_DB:-nocobase2}
+      POSTGRES_USER: ${POSTGRES_NOCOBASE_USER:-arbore}
+      POSTGRES_PASSWORD: ${POSTGRES_NOCOBASE_PASSWORD:-arbore}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - ./data/postgres-nocobase:/var/lib/postgresql/data
+    networks:
+      - arbore-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_NOCOBASE_USER:-arbore} -d ${POSTGRES_NOCOBASE_DB:-nocobase2}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  arbore-func:
+    image: nocobase/nocobase:beta-full
+    container_name: arbore-func
+    restart: unless-stopped
+    networks:
+      - arbore-network
+    depends_on:
+      postgres-nocobase:
+        condition: service_healthy
+    environment:
+      APP_KEY: ${ARBORE_FUNC_APP_KEY:-arbore-secret-key-2024}
+      ENCRYPTION_FIELD_KEY: ${ARBORE_FUNC_ENCRYPTION_KEY:-arbore-secret-key-2024}
+      DB_DIALECT: postgres
+      DB_HOST: postgres-nocobase
+      DB_PORT: 5432
+      DB_DATABASE: ${POSTGRES_NOCOBASE_DB:-nocobase2}
+      DB_USER: ${POSTGRES_NOCOBASE_USER:-arbore}
+      DB_PASSWORD: ${POSTGRES_NOCOBASE_PASSWORD:-arbore}
+      TZ: Asia/Shanghai
+    volumes:
+      - ./data/arbore-func/storage:/app/nocobase/storage
+    ports:
+      - "13000:80"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:80/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+
+  arbore-flow:
+    image: arbore-prod:001.0063
+    container_name: arbore-flow
+    restart: unless-stopped
+    networks:
+      - arbore-network
+    environment:
+      - NODE_ENV=production
+      - N8N_BASIC_AUTH_ACTIVE=false
+      - N8N_DEFAULT_LOCALE=en
+      # SQLite 数据库路径（保持与数据卷一致）
+      - N8N_DATABASE_SQLITE_DATABASE=/app/data/arbore-flow/database.sqlite
+      - N8N_DB_SQLITE_DATABASE=/app/data/arbore-flow/database.sqlite
+      # Push 默认用 websocket；如需可改为 sse
+      - N8N_PUSH_BACKEND=websocket
+    volumes:
+      - ./data:/app/data
+      - ./custom-nodes:/app/custom-nodes
+      - ./license.json:/app/license.json
+    ports:
+      - "5678:5678"
+    entrypoint: ["/bin/sh", "/app/start-prod.sh"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:5678/healthz || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  arbore-network:
+    name: arbore-network
+    driver: bridge

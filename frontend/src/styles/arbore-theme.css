@@ -1,0 +1,115 @@
+/* Arbore品牌主题样式覆盖 */
+
+/* Element Plus主题色覆盖 */
+:root {
+  --el-color-primary: #10b981;
+  --el-color-primary-light-3: rgba(16, 185, 129, 0.3);
+  --el-color-primary-light-5: rgba(16, 185, 129, 0.5);
+  --el-color-primary-light-7: rgba(16, 185, 129, 0.7);
+  --el-color-primary-light-8: rgba(16, 185, 129, 0.8);
+  --el-color-primary-light-9: rgba(16, 185, 129, 0.9);
+  --el-color-primary-dark-2: #059669;
+}
+
+/* 全局背景色 */
+body {
+  background-color: #0f172a !important;
+  color: #f1f5f9 !important;
+}
+
+/* Element Plus组件深色主题 */
+.el-button--primary {
+  background-color: #10b981;
+  border-color: #10b981;
+}
+
+.el-button--primary:hover {
+  background-color: #34d399;
+  border-color: #34d399;
+}
+
+.el-tag--success {
+  background-color: rgba(16, 185, 129, 0.2);
+  border-color: rgba(16, 185, 129, 0.3);
+  color: #10b981;
+}
+
+/* 卡片样式 */
+.el-card {
+  background-color: rgba(30, 41, 59, 0.5) !important;
+  border-color: rgba(148, 163, 184, 0.1) !important;
+  color: #f1f5f9 !important;
+}
+
+.el-card__header {
+  background-color: rgba(15, 23, 42, 0.5) !important;
+  border-bottom-color: rgba(148, 163, 184, 0.1) !important;
+  color: #f1f5f9 !important;
+}
+
+.el-card__body {
+  background-color: rgba(30, 41, 59, 0.3) !important;
+  color: #f1f5f9 !important;
+}
+
+/* Tabs样式 */
+.el-tabs__header {
+  margin-bottom: 20px;
+}
+
+.el-tabs__nav-wrap::after {
+  background-color: rgba(148, 163, 184, 0.1) !important;
+}
+
+.el-tabs__item {
+  color: #94a3b8 !important;
+}
+
+.el-tabs__item.is-active {
+  color: #10b981 !important;
+}
+
+.el-tabs__active-bar {
+  background-color: #10b981 !important;
+}
+
+.el-tabs__item:hover {
+  color: #10b981 !important;
+}
+
+/* 表单样式 */
+.el-form-item__label {
+  color: #f1f5f9 !important;
+}
+
+.el-input__inner,
+.el-select .el-input__inner {
+  background-color: rgba(30, 41, 59, 0.5) !important;
+  border-color: rgba(148, 163, 184, 0.1) !important;
+  color: #f1f5f9 !important;
+}
+
+.el-input__inner:focus,
+.el-select .el-input__inner:focus {
+  border-color: #10b981 !important;
+}
+
+/* 进度条样式 */
+.el-progress-bar__outer {
+  background-color: rgba(148, 163, 184, 0.1) !important;
+}
+
+/* 滚动条样式 */
+.el-scrollbar__bar {
+  opacity: 0.5;
+}
+
+.el-scrollbar__thumb {
+  background-color: rgba(148, 163, 184, 0.3) !important;
+}
+
+/* Empty组件 */
+.el-empty__description {
+  color: #94a3b8 !important;
+}
+

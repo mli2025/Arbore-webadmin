@@ -1,0 +1,612 @@
+services:
+  # PostgreSQL for NocoBase (Arbore-Func)
+  postgres-nocobase:
+    image: postgres:16
+    container_name: arbore-postgres-nocobase
+    restart: unless-stopped
+    command: postgres -c wal_level=logical
+    environment:
+      POSTGRES_DB: ${POSTGRES_NOCOBASE_DB:-arbore}
+      POSTGRES_USER: ${POSTGRES_NOCOBASE_USER:-arbore}
+      POSTGRES_PASSWORD: ${POSTGRES_NOCOBASE_PASSWORD:-arbore}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - ./data/postgres-nocobase:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - arbore-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_NOCOBASE_USER:-arbore}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Arbore-Flow (n8n)
+  arbore-flow:
+    image: arbore-prod:001.0063
+    container_name: arbore-flow
+    restart: unless-stopped
+    networks:
+      - arbore-network
+    environment:
+      - NODE_ENV=production
+      - N8N_BASIC_AUTH_ACTIVE=false
+      - N8N_HOST=flow.fungo.co.th
+      - N8N_PROTOCOL=https
+      - N8N_EDITOR_BASE_URL=https://flow.fungo.co.th:5678
+      - WEBHOOK_URL=https://flow.fungo.co.th:5678/
+      - N8N_PUSH_BACKEND=websocket
+      - N8N_DEFAULT_LOCALE=en
+      - N8N_PROXY_HOPS=1
+      - N8N_SECURE_COOKIE=true
+      # 与 arbore-prod:001.0063 镜像约定：数据在 /app/data（见 flow構建方法.md）
+      - N8N_DATABASE_SQLITE_DATABASE=/app/data/arbore-flow/database.sqlite
+      - N8N_DB_SQLITE_DATABASE=/app/data/arbore-flow/database.sqlite
+    volumes:
+      - ./data:/app/data
+      - ./custom-nodes:/app/custom-nodes
+      - ./license.json:/app/license.json
+      - ./ssl:/app/ssl:ro
+    ports:
+      # 与 nginx 反代配套：nginx 通过 127.0.0.1:15678 转发到容器 5678
+      - "127.0.0.1:15678:5678"
+    expose:
+      - "5678"
+    # 跳过镜像内 docker-entrypoint，避免默认 ./start.sh 与旧路径问题
+    entrypoint: ["/bin/sh", "/app/start-prod.sh"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:5678/healthz || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Arbore-Func (NocoBase 2.x，替换原 1.9)
+  arbore-func:
+    image: nocobase/nocobase:beta-full
+    container_name: arbore-func
+    restart: unless-stopped
+    networks:
+      - arbore-network
+    environment:
+      - APP_KEY=${ARBORE_FUNC_APP_KEY:-arbore-secret-key-2024}
+      - ENCRYPTION_FIELD_KEY=${ARBORE_FUNC_ENCRYPTION_KEY:-arbore-secret-key-2024}
+      - DB_DIALECT=postgres
+      - DB_HOST=postgres-nocobase
+      - DB_PORT=5432
+      - DB_DATABASE=${POSTGRES_NOCOBASE_DB:-nocobase2}
+      - DB_USER=${POSTGRES_NOCOBASE_USER:-arbore}
+      - DB_PASSWORD=${POSTGRES_NOCOBASE_PASSWORD:-arbore}
+      - TZ=Asia/Shanghai
+    volumes:
+      - ./data/arbore-func/storage:/app/nocobase/storage
+    ports:
+      - "13000:80"  # 3.100 服务器需要直接访问
+    expose:
+      - "80"
+    depends_on:
+      postgres-nocobase:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:80/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+
+  # PostgreSQL for Vector Database (with pgvector)
+  postgres-vector:
+    image: pgvector/pgvector:pg15
+    container_name: arbore-postgres-vector
+    restart: always
+    environment:
+      POSTGRES_DB: ${POSTGRES_VECTOR_DB:-vector_db}
+      POSTGRES_USER: ${POSTGRES_VECTOR_USER:-arbore}
+      POSTGRES_PASSWORD: ${POSTGRES_VECTOR_PASSWORD:-arbore}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - ./data/postgres-vector:/var/lib/postgresql/data
+      - ./init-scripts/init-postgres-vector.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5433:5432"
+    networks:
+      - arbore-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_VECTOR_USER:-arbore} -d ${POSTGRES_VECTOR_DB:-vector_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Ollama (AI Model Service)
+  ollama:
+    image: ollama/ollama:latest
+    container_name: arbore-ollama
+    restart: unless-stopped
+    privileged: true
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+      - OLLAMA_KEEP_ALIVE=24h
+      - OLLAMA_NUM_PARALLEL=1
+      - OLLAMA_MAX_LOADED_MODELS=1
+      - OLLAMA_NUM_GPU=1
+      - OLLAMA_NUM_THREAD=8
+      - OLLAMA_FLASH_ATTENTION=false
+      - OLLAMA_CONTEXT_LENGTH=4096
+      - OLLAMA_VULKAN=1
+      # 移除GPU设备覆盖，让Ollama自动检测
+      # - VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/radeon_icd.x86_64.json
+      # - GGML_VK_VISIBLE_DEVICES=0
+      # - HIP_VISIBLE_DEVICES=0
+      # - HSA_OVERRIDE_GFX_VERSION=11.0.0
+    volumes:
+      - ./data/ollama:/root/.ollama
+    ports:
+      - "11434:11434"
+    networks:
+      - arbore-network
+    devices:
+      - /dev/dri:/dev/dri
+      - /dev/kfd:/dev/kfd
+    group_add:
+      - video
+    deploy:
+      resources:
+        limits:
+          memory: 96G
+        reservations:
+          memory: 80G
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list > /dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Open WebUI (Ollama Web Interface) - 已移除，不再需要
+  # ollama-webui:
+  #   image: ghcr.io/open-webui/open-webui:main
+  #   container_name: arbore-ollama-webui
+  #   restart: unless-stopped
+  #   environment:
+  #     - OLLAMA_BASE_URL=http://ollama:11434
+  #   volumes:
+  #     - ./data/ollama-webui:/app/backend/data
+  #   ports:
+  #     - "3000:8080"
+  #   networks:
+  #     - arbore-network
+  #   depends_on:
+  #     - ollama
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8080/')\" || exit 1"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+  #     start_period: 60s
+
+  # Web Admin API (Backend) - 现在在systemd中运行，不再使用Docker容器
+  # web-admin-api:
+  #   build:
+  #     context: ./web-admin/backend
+  #     dockerfile: Dockerfile
+  #   container_name: arbore-web-admin-api
+  #   restart: unless-stopped
+  #   user: "0:0"  # 使用root用户以访问Docker socket
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock:ro
+  #   ports:
+  #     - "8002:8002"
+  #   networks:
+  #     - arbore-network
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8002/ || exit 1"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+
+  # Web Admin Frontend - 已移到宿主机运行，不再使用Docker容器
+  # web-admin-frontend:
+  #   image: nginx:alpine
+  #   container_name: arbore-web-admin-frontend
+  #   restart: unless-stopped
+  #   user: "0:0"  # 以root用户运行，避免权限问题
+  #   volumes:
+  #     - ./web-admin/frontend/dist:/usr/share/nginx/html
+  #     - ./web-admin/frontend/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+  #     - ./web-admin/frontend/entrypoint.sh:/entrypoint.sh:ro
+  #   entrypoint: ["/bin/sh", "/entrypoint.sh"]
+  #   ports:
+  #     - "9000:80"  # 3.100 服务器需要直接访问
+  #   expose:
+  #     - "80"
+  #   networks:
+  #     - arbore-network
+  #   extra_hosts:
+  #     - "host.docker.internal:host-gateway"  # 允许容器访问宿主机服务
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "curl -f http://localhost/ || exit 1"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+
+  # Chat Service (静态 HTML 页面，提供 chat 界面，端口 7008，通过 nginx 统一对外)
+  chat-service:
+    build:
+      context: ./service/chat-service
+      dockerfile: Dockerfile
+    container_name: arbore-chat-service
+    restart: unless-stopped
+    environment:
+      - PORT=7008
+    expose:
+      - "7008"  # 只暴露给 Docker 网络，通过 nginx 统一对外
+    networks:
+      - arbore-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:7008/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # QuickChart (Chart Generation Service)
+  quickchart:
+    image: ianw/quickchart:latest
+    container_name: arbore-quickchart
+    restart: unless-stopped
+    environment:
+      - PORT=7007
+    ports:
+      - "7007:7007"  # 宿主机端口映射，也可通过 nginx /quickchart 代理
+    networks:
+      - arbore-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:7007/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Website Frontend (Next.js) - 3.100 服务器上可能不存在，注释掉
+  # website-frontend:
+  #   image: website-frontend:latest
+  #   container_name: arbore-website-frontend
+  #   restart: unless-stopped
+  #   environment:
+  #     - NEXT_PUBLIC_API_BASE_URL=/api
+  #     - NODE_ENV=production
+  #   expose:
+  #     - "3000"
+  #   networks:
+  #     - arbore-network
+  #   depends_on:
+  #     - prompt-api
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/ || exit 1"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+
+  # Website API (.NET) - 3.100 服务器上可能不存在，注释掉
+  # prompt-api:
+  #   image: prompt-api:latest
+  #   container_name: arbore-prompt-api
+  #   restart: unless-stopped
+  #   environment:
+  #     - ASPNETCORE_ENVIRONMENT=Production
+  #     - ConnectionStrings__DefaultConnection=Host=postgres-nocobase;Port=5432;Database=prompt_management_db;Username=arbore;Password=arbore
+  #   expose:
+  #     - "6000"
+  #   networks:
+  #     - arbore-network
+  #   depends_on:
+  #     postgres-nocobase:
+  #       condition: service_healthy
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:6000/ || exit 1"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+
+  # 统一路由服务（已移除，所有服务通过 nginx 直接反向代理）
+  # service-router:
+  #   build:
+  #     context: ./service/router
+  #     dockerfile: Dockerfile
+  #   container_name: arbore-service-router
+  #   restart: unless-stopped
+  #   environment:
+  #     - PORT=7001
+  #     - PACKING_CALCULATOR_URL=http://packing-calculator:7011
+  #     - VISUALIZATION_URL=http://visualization:7002
+  #     - QUICKCHART_URL=http://quickchart:7007
+  #   ports:
+  #     - "7001:7001"
+  #   expose:
+  #     - "7001"
+  #   networks:
+  #     - arbore-network
+  #   depends_on:
+  #     - packing-calculator
+  #     - visualization
+  #     - quickchart
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:7001/health')\" || exit 1"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+
+  # PDF 转 PNG 服务
+  pdf-to-png:
+    build:
+      context: ./service/pdf-to-png
+      dockerfile: Dockerfile
+    container_name: arbore-pdf-to-png
+    restart: unless-stopped
+    environment:
+      - PORT=7004
+    expose:
+      - "7004"
+    networks:
+      - arbore-network
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:7004/health')\" || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # PaddleOCR 服务（暂时注释，网络问题无法拉取 ubuntu:22.04 镜像）
+  # paddle-ocr:
+  #   build:
+  #     context: ./service/paddle-ocr
+  #     dockerfile: Dockerfile
+  #   container_name: arbore-paddle-ocr
+  #   restart: unless-stopped
+  #   environment:
+  #     - PORT=7005
+  #   expose:
+  #     - "7005"
+  #   networks:
+  #     - arbore-network
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:7005/health')\" || exit 1"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+
+  # Tesseract OCR 服务（暂时注释，网络问题无法拉取 ubuntu:22.04 镜像）
+  # tesseract-ocr:
+  #   build:
+  #     context: ./service/tesseract-ocr
+  #     dockerfile: Dockerfile
+  #   container_name: arbore-tesseract-ocr
+  #   restart: unless-stopped
+  #   environment:
+  #     - PORT=7006
+  #   expose:
+  #     - "7006"
+  #   networks:
+  #     - arbore-network
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:7006/health')\" || exit 1"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+
+  # HTML to PDF 服务（暂时注释，编译依赖问题）
+  # html-to-pdf:
+  #   build:
+  #     context: ./service/html-to-pdf
+  #     dockerfile: Dockerfile
+  #   container_name: arbore-html-to-pdf
+  #   restart: unless-stopped
+  #   environment:
+  #     - PORT=7003
+  #   expose:
+  #     - "7003"  # 只暴露给Docker网络，不对外暴露端口
+  #   networks:
+  #     - arbore-network
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:7003/health')\" || exit 1"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+
+  # Nginx Reverse Proxy（统一入口 - 80端口）
+  nginx:
+    image: nginx:alpine
+    container_name: arbore-nginx
+    restart: unless-stopped
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      # 3.100 本地服务器不需要 SSL 证书
+      # - ./nginx/ssl:/etc/nginx/ssl:ro
+    ports:
+      - "80:80"   # HTTP 端口（3.100 本地服务器只需要 HTTP）
+    networks:
+      - arbore-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # 允许容器访问宿主机服务
+    # depends_on 已移除：web-admin-frontend 已移到宿主机运行，service-router 已移除
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # 装箱计算API服务（内部端口 7011，通过 nginx 直接反向代理）
+  packing-calculator:
+    build:
+      context: ./service/apis/packing_calculator
+      dockerfile: Dockerfile
+    container_name: arbore-packing-calculator
+    restart: unless-stopped
+    environment:
+      - PORT=7011
+    expose:
+      - "7011"
+    networks:
+      - arbore-network
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:7011/health')\" || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # 3D可视化API服务（内部端口 7002）
+  visualization:
+    build:
+      context: ./service/apis/visualization
+      dockerfile: Dockerfile
+    container_name: arbore-visualization
+    restart: unless-stopped
+    environment:
+      - PORT=7002
+    expose:
+      - "7002"
+    networks:
+      - arbore-network
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:7002/health')\" || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # 装箱优化API服务（内部端口 7013，通过 nginx 直接反向代理）
+  packing-optimizer:
+    build:
+      context: ./service/packing_optimizer
+      dockerfile: Dockerfile
+    container_name: arbore-packing-optimizer
+    restart: unless-stopped
+    environment:
+      - PORT=7013
+    expose:
+      - "7013"
+    networks:
+      - arbore-network
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:7013/health')\" || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # test-api-service（自定义服务，容器内端口 7015）
+  test-api-service:
+    image: test-service:1.0.0
+    container_name: arbore-test-api-service
+    restart: unless-stopped
+    environment:
+      - PORT=7015
+    expose:
+      - "7015"  # 容器内部端口，通过nginx路径区分服务
+    networks:
+      - arbore-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:7015/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # spdb-treasury-api（自定义服务，直接端口访问 7016）
+  spdb-treasury-api:
+    image: spdb-treasury-api:latest
+    container_name: arbore-spdb-treasury-api
+    restart: unless-stopped
+    env_file:
+      - ./config/spdb-treasury-api/.env
+    environment:
+      - PORT=7016
+    ports:
+      - "7016:7016"  # 直接映射到宿主机端口，通过端口访问
+    networks:
+      - arbore-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:7016/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+  # image-confirm（自定义服务，容器内端口 7018）
+  image-confirm:
+    image: image-confirm:latest
+    container_name: arbore-image-confirm
+    restart: unless-stopped
+    env_file:
+      - ./config/image-confirm/.env
+    environment:
+      - PORT=7018
+    expose:
+      - "7018"  # 容器内部端口，通过nginx路径区分服务
+    networks:
+      - arbore-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:7018/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # form-data-proxy（自定义服务，直接端口访问 7020）
+  form-data-proxy:
+    image: form-data-proxy:latest
+    container_name: arbore-form-data-proxy
+    restart: unless-stopped
+    environment:
+      - PORT=7020
+    ports:
+      - "7020:7020"  # 直接映射到宿主机端口，通过端口访问
+    networks:
+      - arbore-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:7020/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # workflow-hub（自定义服务，直接端口访问 7021）
+  workflow-hub:
+    image: n8n-workflows-api:latest
+    container_name: arbore-workflow-hub
+    restart: unless-stopped
+    environment:
+      - PORT=8000  # 服务实际监听8000端口
+    ports:
+      - "7021:8000"  # 宿主机7021映射到容器8000端口
+    networks:
+      - arbore-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # dingtalk-bridge（钉钉机器人 + Arbore-Flow 集成，宿主机端口 7022）
+  dingtalk-bridge:
+    image: dingtalk-bridge:latest
+    container_name: arbore-dingtalk-bridge
+    restart: unless-stopped
+    environment:
+      - DINGTALK_CLIENT_ID=${DINGTALK_CLIENT_ID:-}
+      - DINGTALK_CLIENT_SECRET=${DINGTALK_CLIENT_SECRET:-}
+      - ARBORE_FLOW_WEBHOOK_URL=${ARBORE_FLOW_WEBHOOK_URL:-}
+      - FILTER_TITLE_KEYWORDS=${FILTER_TITLE_KEYWORDS:-["报销","付款申请"]}
+    ports:
+      - "7022:7022"
+    networks:
+      - arbore-network
+
+networks:
+  arbore-network:
+    driver: bridge
+    name: arbore-network
+
+volumes:
+  postgres-nocobase-data:
+  postgres-vector-data:
+
