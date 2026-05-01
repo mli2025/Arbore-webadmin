@@ -1,144 +1,132 @@
 <template>
   <!--
     系统资源监控视图 / System Resources View
-
-    中文说明：
-    本组件通过调用后端 /api/v1/system/resources 接口，定期获取 CPU、内存、
-    磁盘等关键资源的使用情况，并以进度条的方式进行可视化展示。该页面主要
-    面向运维人员，用于快速判断当前宿主机是否存在资源瓶颈。
-
-    English description:
-    This component periodically polls the `/api/v1/system/resources` endpoint
-    to retrieve CPU, memory and disk utilization metrics of the host machine.
-    The data is rendered as progress bars so that operators can quickly spot
-    abnormal resource consumption patterns (for example memory exhaustion or
-    disk almost full).
+    UI 文案使用英文。脚本注释保留中文。
   -->
   <div class="resources-view">
+    <div class="page-header">
+      <div class="header-title">
+        <h2>resources</h2>
+        <p class="header-desc">
+          Live CPU / memory / disk / GPU utilisation, polled every 10s.
+        </p>
+      </div>
+      <button class="tui-btn-mono" :class="{ loading }" @click="refreshResources">
+        refresh
+      </button>
+    </div>
+
     <el-row :gutter="20">
       <el-col :span="24">
-        <el-card shadow="hover" class="resource-card">
+        <el-card shadow="never" class="resource-card">
           <template #header>
-            <span>CPU使用率</span>
+            <span class="rc-title">cpu</span>
+            <span class="rc-meta">{{ resources.cpu.percent }}% · cores {{ resources.cpu.count }}</span>
           </template>
-          <div class="resource-item">
-            <el-progress 
-              :percentage="resources.cpu.percent" 
-              :color="getColor(resources.cpu.percent)"
-              :stroke-width="20"
-            />
-            <p style="margin-top: 10px;">
-              核心数: {{ resources.cpu.count }}
-            </p>
-          </div>
+          <el-progress
+            :percentage="resources.cpu.percent"
+            :color="getColor(resources.cpu.percent)"
+            :stroke-width="14"
+          />
         </el-card>
       </el-col>
-      
+
       <el-col :span="24">
-        <el-card shadow="hover" class="resource-card">
+        <el-card shadow="never" class="resource-card">
           <template #header>
-            <span>内存使用</span>
-          </template>
-          <div class="resource-item">
-            <el-progress 
-              :percentage="resources.memory.percent" 
-              :color="getColor(resources.memory.percent)"
-              :stroke-width="20"
-            />
-            <p style="margin-top: 10px;">
-              已用: {{ formatBytes(resources.memory.used) }} / 
+            <span class="rc-title">memory</span>
+            <span class="rc-meta">
+              {{ resources.memory.percent }}% ·
+              {{ formatBytes(resources.memory.used) }} /
               {{ formatBytes(resources.memory.total) }}
-            </p>
-          </div>
+            </span>
+          </template>
+          <el-progress
+            :percentage="resources.memory.percent"
+            :color="getColor(resources.memory.percent)"
+            :stroke-width="14"
+          />
         </el-card>
       </el-col>
-      
+
       <el-col :span="24">
-        <el-card shadow="hover" class="resource-card">
+        <el-card shadow="never" class="resource-card">
           <template #header>
-            <span>磁盘使用</span>
-          </template>
-          <div class="resource-item">
-            <el-progress 
-              :percentage="resources.disk.percent" 
-              :color="getColor(resources.disk.percent)"
-              :stroke-width="20"
-            />
-            <p style="margin-top: 10px;">
-              已用: {{ formatBytes(resources.disk.used) }} / 
+            <span class="rc-title">disk</span>
+            <span class="rc-meta">
+              {{ resources.disk.percent }}% ·
+              {{ formatBytes(resources.disk.used) }} /
               {{ formatBytes(resources.disk.total) }}
-            </p>
-          </div>
+            </span>
+          </template>
+          <el-progress
+            :percentage="resources.disk.percent"
+            :color="getColor(resources.disk.percent)"
+            :stroke-width="14"
+          />
         </el-card>
       </el-col>
 
       <template v-if="resources.gpu && resources.gpu.length">
         <el-col :span="24" v-for="gpu in resources.gpu" :key="gpu.index">
-          <el-card shadow="hover" class="resource-card">
+          <el-card shadow="never" class="resource-card">
             <template #header>
-              <span>GPU {{ gpu.index }}: {{ gpu.name }}</span>
+              <span class="rc-title">gpu {{ gpu.index }}</span>
+              <span class="rc-meta">{{ gpu.name }}</span>
             </template>
-            <div class="resource-item">
-              <p class="resource-label">算力使用率</p>
-              <el-progress 
-                :percentage="gpu.utilization_percent" 
-                :color="getColor(gpu.utilization_percent)"
-                :stroke-width="16"
-              />
-              <p class="resource-label" style="margin-top: 14px;">显存使用</p>
-              <el-progress 
-                :percentage="gpu.memory_percent" 
-                :color="getColor(gpu.memory_percent)"
-                :stroke-width="16"
-              />
-              <p style="margin-top: 10px;">
-                已用: {{ formatBytes(gpu.memory_used) }} / {{ formatBytes(gpu.memory_total) }}
-              </p>
-            </div>
+            <p class="resource-label">utilisation · {{ gpu.utilization_percent }}%</p>
+            <el-progress
+              :percentage="gpu.utilization_percent"
+              :color="getColor(gpu.utilization_percent)"
+              :stroke-width="12"
+            />
+            <p class="resource-label" style="margin-top: 14px;">
+              memory · {{ gpu.memory_percent }}% ·
+              {{ formatBytes(gpu.memory_used) }} / {{ formatBytes(gpu.memory_total) }}
+            </p>
+            <el-progress
+              :percentage="gpu.memory_percent"
+              :color="getColor(gpu.memory_percent)"
+              :stroke-width="12"
+            />
           </el-card>
         </el-col>
       </template>
     </el-row>
-    
-    <el-button 
-      type="primary" 
-      @click="refreshResources" 
-      :loading="loading"
-      style="margin-top: 20px;"
-    >
-      刷新资源
-    </el-button>
   </div>
 </template>
 
 <script setup>
 // 资源监控逻辑（Resource monitoring logic）
-// 职责说明：
 // 1) 定期从后端拉取最新资源使用情况；
-// 2) 将原始字节数转换为人类可读的单位字符串；
-// 3) 根据占用百分比返回对应的颜色，形成直观的风险感知。
-import { ref, onMounted } from 'vue'
+// 2) 字节数转换为人类可读字符串；
+// 3) 占用百分比对应到 mocha 主题颜色（green / peach / red）。
+import { ref, onMounted, onBeforeUnmount, inject } from 'vue'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 
+const TAB_NAME = 'resources'
 const resources = ref({
   cpu: { percent: 0, count: 0 },
   memory: { total: 0, used: 0, percent: 0 },
   disk: { total: 0, used: 0, percent: 0 },
-  gpu: []
+  gpu: [],
 })
 const loading = ref(false)
 
-// 根据占比返回进度条颜色（绿 / 橙 / 红）
-// Map percentage to progress-bar color (green / orange / red).
+// CSS variables are not directly available to el-progress :color; reuse the
+// concrete Catppuccin Mocha hex values to keep visuals consistent.
+const COLOR_OK   = '#a6e3a1'   // mocha green
+const COLOR_WARN = '#fab387'   // mocha peach
+const COLOR_ERR  = '#f38ba8'   // mocha red
 const getColor = (percent) => {
-  if (percent < 50) return '#10b981'  // Arbore品牌绿色
-  if (percent < 80) return '#f59e0b'  // 橙色警告
-  return '#ef4444'  // 红色危险
+  if (percent < 50) return COLOR_OK
+  if (percent < 80) return COLOR_WARN
+  return COLOR_ERR
 }
 
 const formatBytes = (bytes) => {
-  if (bytes === 0) return '0 B'
+  if (bytes === 0 || !bytes) return '0 B'
   const k = 1024
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
   const i = Math.floor(Math.log(bytes) / Math.log(k))
@@ -151,58 +139,103 @@ const refreshResources = async () => {
     const response = await axios.get('/api/v1/system/resources')
     resources.value = response.data
   } catch (error) {
-    ElMessage.error('获取系统资源失败: ' + error.message)
+    ElMessage.error('failed to fetch resources: ' + error.message)
   } finally {
     loading.value = false
   }
 }
 
+const registerRefresh   = inject('registerRefresh',   null)
+const unregisterRefresh = inject('unregisterRefresh', null)
+
+let timer = null
 onMounted(() => {
   refreshResources()
-  // 每10秒自动刷新
-  setInterval(refreshResources, 10000)
+  timer = setInterval(refreshResources, 10000)
+  if (registerRefresh) registerRefresh(TAB_NAME, refreshResources)
+})
+onBeforeUnmount(() => {
+  if (timer) clearInterval(timer)
+  if (unregisterRefresh) unregisterRefresh(TAB_NAME)
 })
 </script>
 
 <style scoped>
 .resources-view {
-  padding: 20px 0;
+  padding: 0;
+  font-family: var(--font-mono);
+  color: var(--fg-text);
 }
 
-.resources-view :deep(.el-card) {
-  background: rgba(30, 41, 59, 0.5);
-  border: 1px solid rgba(148, 163, 184, 0.1);
-  border-radius: 8px;
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
+  padding: 4px 0 12px;
+  border-bottom: 1px solid var(--border);
 }
+.header-title h2 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg-text);
+  margin: 0 0 4px 0;
+  text-transform: lowercase;
+  letter-spacing: 1.5px;
+}
+.header-title h2::before {
+  content: '┃ ';
+  color: var(--accent);
+}
+.header-desc {
+  font-size: 12px;
+  color: var(--fg-muted);
+  margin: 0;
+}
+
+.tui-btn-mono {
+  font-family: var(--font-mono);
+  background: transparent;
+  color: var(--fg-subtext);
+  border: 1px solid var(--border-strong);
+  padding: 4px 14px;
+  font-size: 12px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  letter-spacing: 0.4px;
+}
+.tui-btn-mono:hover { color: var(--accent); border-color: var(--accent); }
+.tui-btn-mono.loading { opacity: 0.6; pointer-events: none; }
 
 .resources-view :deep(.el-card__header) {
-  background: rgba(15, 23, 42, 0.5);
-  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
-  color: #f1f5f9;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 10px 14px;
 }
 
-.resources-view :deep(.el-card__body) {
-  background: rgba(30, 41, 59, 0.3);
-  color: #f1f5f9;
+.rc-title {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.rc-meta {
+  font-size: 12px;
+  color: var(--fg-muted);
+  margin-left: auto;
 }
 
 .resource-card {
-  margin-bottom: 20px;
-}
-
-.resource-item {
-  padding: 10px 0;
-}
-
-.resource-item p {
-  color: #94a3b8;
-  margin-top: 10px;
+  margin-bottom: 14px;
 }
 
 .resource-label {
-  font-size: 13px;
-  color: #94a3b8;
-  margin-bottom: 6px;
+  font-size: 11.5px;
+  color: var(--fg-muted);
+  margin: 0 0 6px 0;
+  letter-spacing: 0.4px;
+  text-transform: lowercase;
 }
 </style>
-

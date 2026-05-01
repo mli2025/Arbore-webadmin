@@ -21,6 +21,7 @@
     <!-- ============== TOP HEADER ============== -->
     <header class="tui-header">
       <div class="th-left">
+        <img src="/logo.png" alt="arbore" class="th-logo" />
         <span class="th-brand">arbore</span>
         <span class="th-sep">·</span>
         <span class="th-title">web admin</span>
@@ -239,7 +240,7 @@ const activateTab = (name) => {
 // ----------------------------------------------------------------------------
 // Header / status bar state
 // ----------------------------------------------------------------------------
-const apiVersion = ref('v1.2.1')
+const apiVersion = ref('v1.2.2')
 const buildTime = ref('')
 const hostName = ref(window.location.hostname || 'localhost')
 const portainerOk = ref(false)
@@ -262,6 +263,13 @@ const showChangelog = ref(false)
 const showHelp = ref(false)
 
 const changelog = [
+  { version: 'v1.2.2', date: '2026-05-01', title: 'English UI polish',
+    changes: [
+      'Restored arbore logo in the top-left brand area',
+      'All UI strings translated to English (license / resources / logs / system / custom services)',
+      'License page: copy button now uses solid primary style for clear contrast',
+      'Custom services view fully aligned with the Catppuccin Mocha theme tokens',
+    ] },
   { version: 'v1.2.1', date: '2026-05-01', title: 'TUI redesign + streaming upload',
     changes: [
       'TUI redesign inspired by llmfit (Catppuccin Mocha + monospace UI)',
@@ -466,18 +474,21 @@ onBeforeUnmount(() => {
 .th-left {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+}
+.th-logo {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+  display: block;
+  /* logo 的深绿底色与 mocha 主题协调，但仍微微下沉，避免比 brand 文字抢眼 */
+  filter: drop-shadow(0 0 4px rgba(180, 190, 254, 0.18));
 }
 .th-brand {
   color: var(--accent);
   font-weight: 700;
   letter-spacing: 1.5px;
   text-transform: lowercase;
-}
-.th-brand::before {
-  content: '◆ ';
-  color: var(--accent-strong);
-  font-weight: normal;
 }
 .th-title {
   color: var(--fg-subtext);

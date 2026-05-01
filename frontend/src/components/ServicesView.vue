@@ -194,7 +194,7 @@
         </el-table-column>
         <el-table-column label="display name" min-width="160">
           <template #default="{ row }">
-            <el-input v-model="row.display" placeholder="工作流服务" size="small" />
+            <el-input v-model="row.display" placeholder="workflow service" size="small" />
           </template>
         </el-table-column>
         <el-table-column label="description" min-width="200">

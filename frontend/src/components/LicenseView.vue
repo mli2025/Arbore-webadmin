@@ -2,94 +2,90 @@
   <!--
     许可证管理视图 / License Management View
 
-    中文说明：
-    本组件用于展示宿主机硬件指纹、当前许可证状态，并提供一个简洁的注册表单，
-    通过填入企业 ID 与校验码来激活 Arbore AI Host 的商业功能。页面强调
-    “宿主机硬件指纹”这一概念，提醒用户在容器部署场景下需要挂载 machine-id。
-
-    English description:
-    This view is responsible for visualizing license status and guiding
-    customers through the registration process.  It shows the host hardware
-    fingerprint (derived from the machine‑id of the physical host) and
-    offers a small form where the company identifier and validation code
-    can be submitted to activate the platform.
+    中文说明（仅注释）:
+    本组件展示宿主机硬件指纹、当前许可证状态，并提供注册表单。
+    UI 文案统一使用英文，避免在不同字体下显示效果不一致。
+    "复制" 按钮原先用 plain 模式在暗色主题下文字难以辨认，已改为
+    实心 primary 按钮。
   -->
   <div class="license-view">
     <div class="page-header">
       <div class="header-title">
-        <h2>许可证管理</h2>
-        <p class="header-desc">注册并验证 Arbore AI Host 许可证，硬件指纹为宿主机标识</p>
+        <h2>license</h2>
+        <p class="header-desc">
+          Register and validate the Arbore AI Host license.
+          The host fingerprint is bound to this physical machine.
+        </p>
       </div>
     </div>
 
     <el-card class="license-card" shadow="never">
       <template #header>
         <div class="card-header">
-          <span>注册状态</span>
-          <el-tag v-if="license.registered" type="success" size="small">已注册</el-tag>
-          <el-tag v-else type="info" size="small">未注册</el-tag>
+          <span>registration status</span>
+          <el-tag v-if="license.registered" type="success" size="small">registered</el-tag>
+          <el-tag v-else type="info" size="small">not registered</el-tag>
         </div>
       </template>
 
       <div v-if="license.registered" class="status-section">
         <el-descriptions :column="1" border class="arbore-descriptions">
-          <el-descriptions-item label="企业名称">{{ license.companyName || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="企业ID">{{ license.companyId || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="版本信息">{{ license.versionInfo || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="company name">{{ license.companyName || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="company id">{{ license.companyId || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="version info">{{ license.versionInfo || '-' }}</el-descriptions-item>
         </el-descriptions>
       </div>
       <div v-else class="status-section">
-        <p class="hint-text">请完成下方注册表单并提交校验码以激活许可证。</p>
+        <p class="hint-text">Submit a validation code below to activate the license.</p>
       </div>
     </el-card>
 
     <el-card class="license-card" shadow="never">
       <template #header>
         <div class="card-header">
-          <span>主机信息</span>
+          <span>host info</span>
         </div>
       </template>
       <div class="host-section">
         <el-descriptions :column="1" border class="arbore-descriptions">
-          <el-descriptions-item label="主机标识（宿主机硬件指纹）">
-            <span class="fingerprint-text">{{ license.hostFingerprint || '加载中...' }}</span>
+          <el-descriptions-item label="host fingerprint">
+            <span class="fingerprint-text">{{ license.hostFingerprint || 'loading...' }}</span>
             <el-button
-              type="danger"
+              type="primary"
               size="small"
-              plain
               @click="copyFingerprint"
               style="margin-left: 12px;"
             >
-              复制
+              copy
             </el-button>
           </el-descriptions-item>
         </el-descriptions>
-        <p class="form-tip">将主机标识提供给客服以获取校验码。</p>
+        <p class="form-tip">Send the host fingerprint to support to obtain a validation code.</p>
       </div>
     </el-card>
 
     <el-card class="license-card" shadow="never">
       <template #header>
         <div class="card-header">
-          <span>注册许可证</span>
+          <span>register license</span>
         </div>
       </template>
       <el-form
         ref="formRef"
         :model="form"
         :rules="formRules"
-        label-width="120px"
+        label-width="140px"
         label-position="left"
         class="register-form"
       >
-        <el-form-item label="企业ID" prop="companyId">
+        <el-form-item label="company id" prop="companyId">
           <el-input
             v-model="form.companyId"
             placeholder="Enter your company GUID"
             clearable
           />
         </el-form-item>
-        <el-form-item label="校验码" prop="validationCode">
+        <el-form-item label="validation code" prop="validationCode">
           <el-input
             v-model="form.validationCode"
             placeholder="Enter the validation code provided by support"
@@ -98,7 +94,7 @@
             clearable
           />
         </el-form-item>
-        <el-form-item label="企业名称" prop="companyName">
+        <el-form-item label="company name" prop="companyName">
           <el-input
             v-model="form.companyName"
             placeholder="Enter your company name"
@@ -107,11 +103,11 @@
         </el-form-item>
         <el-form-item>
           <el-button
-            type="danger"
+            type="primary"
             :loading="submitting"
             @click="submitRegister"
           >
-            注册许可证
+            register
           </el-button>
         </el-form-item>
       </el-form>
@@ -121,9 +117,9 @@
 
 <script setup>
 // 许可证管理逻辑（License management logic）
-// - fetchLicense:  从后端拉取当前许可证与宿主机指纹信息；
-// - copyFingerprint: 方便用户一键复制硬件指纹并发送给客服或销售；
-// - submitRegister: 提交表单到后端进行许可证注册，并刷新展示状态。
+// - fetchLicense:    拉取当前许可证与宿主机指纹
+// - copyFingerprint: 一键复制硬件指纹
+// - submitRegister:  提交注册表单到后端
 import { ref, reactive, onMounted } from 'vue'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
@@ -148,15 +144,15 @@ const form = reactive({
 })
 
 const formRules = {
-  companyId: [{ required: true, message: '请输入企业ID', trigger: 'blur' }],
-  validationCode: [{ required: true, message: '请输入校验码', trigger: 'blur' }],
-  companyName: [{ required: true, message: '请输入企业名称', trigger: 'blur' }],
+  companyId:      [{ required: true, message: 'company id is required',      trigger: 'blur' }],
+  validationCode: [{ required: true, message: 'validation code is required', trigger: 'blur' }],
+  companyName:    [{ required: true, message: 'company name is required',    trigger: 'blur' }],
 }
 
 const apiBase = '/admin-api'
-const licenseApiUrl = () => `${apiBase}/api/v1/license`
+const licenseApiUrl    = () => `${apiBase}/api/v1/license`
 const fingerprintApiUrl = () => `${apiBase}/api/v1/license/hardware-fingerprint`
-const registerApiUrl = () => `${apiBase}/api/v1/license/register`
+const registerApiUrl   = () => `${apiBase}/api/v1/license/register`
 
 async function fetchLicense() {
   loading.value = true
@@ -173,8 +169,8 @@ async function fetchLicense() {
     }
   } catch (err) {
     license.value.registered = false
-    license.value.hostFingerprint = '获取失败'
-    ElMessage.error('获取许可证信息失败: ' + (err.response?.data?.detail?.message || err.message))
+    license.value.hostFingerprint = 'fetch failed'
+    ElMessage.error('failed to load license: ' + (err.response?.data?.detail?.message || err.message))
   } finally {
     loading.value = false
   }
@@ -182,14 +178,14 @@ async function fetchLicense() {
 
 function copyFingerprint() {
   const text = license.value.hostFingerprint
-  if (!text || text === '加载中...' || text === '获取失败') {
-    ElMessage.warning('无可复制的主机标识')
+  if (!text || text === 'loading...' || text === 'fetch failed') {
+    ElMessage.warning('host fingerprint not available')
     return
   }
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(text).then(
-      () => ElMessage.success('已复制到剪贴板'),
-      () => fallbackCopy(text)
+      () => ElMessage.success('copied to clipboard'),
+      () => fallbackCopy(text),
     )
   } else {
     fallbackCopy(text)
@@ -205,9 +201,9 @@ function fallbackCopy(text) {
   ta.select()
   try {
     document.execCommand('copy')
-    ElMessage.success('已复制到剪贴板')
+    ElMessage.success('copied to clipboard')
   } catch (e) {
-    ElMessage.error('复制失败')
+    ElMessage.error('copy failed')
   }
   document.body.removeChild(ta)
 }
@@ -225,7 +221,7 @@ async function submitRegister() {
       await axios.post(registerApiUrl(), fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
       })
-      ElMessage.success('许可证注册成功')
+      ElMessage.success('license registered')
       form.companyId = ''
       form.validationCode = ''
       form.companyName = ''
@@ -233,7 +229,7 @@ async function submitRegister() {
     } catch (err) {
       const detail = err.response?.data?.detail
       const msg = (detail && (detail.message || detail)) || err.message
-      ElMessage.error('注册失败: ' + msg)
+      ElMessage.error('registration failed: ' + msg)
     } finally {
       submitting.value = false
     }
@@ -246,104 +242,91 @@ onMounted(() => {
 </script>
 
 <style scoped>
+/* License view - tuned to the global Catppuccin Mocha theme */
 .license-view {
   padding: 0;
+  font-family: var(--font-mono);
+  color: var(--fg-text);
 }
 
 .page-header {
-  margin-bottom: 24px;
-  padding: 20px 0;
+  margin-bottom: 18px;
+  padding: 4px 0 12px;
+  border-bottom: 1px solid var(--border);
 }
 
 .header-title h2 {
-  font-size: 24px;
-  font-weight: 600;
-  color: #f1f5f9;
-  margin: 0 0 8px 0;
-}
-
-.header-desc {
   font-size: 14px;
-  color: #94a3b8;
+  font-weight: 600;
+  color: var(--fg-text);
+  margin: 0 0 4px 0;
+  text-transform: lowercase;
+  letter-spacing: 1.5px;
+}
+.header-title h2::before {
+  content: '┃ ';
+  color: var(--accent);
+}
+.header-desc {
+  font-size: 12px;
+  color: var(--fg-muted);
   margin: 0;
 }
 
 .license-card {
-  margin-bottom: 24px;
-  background: rgba(30, 41, 59, 0.5);
-  border: 1px solid rgba(148, 163, 184, 0.1);
-  border-radius: 8px;
-}
-
-.license-card :deep(.el-card__header) {
-  background: rgba(15, 23, 42, 0.5);
-  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
-  padding: 16px 20px;
-}
-
-.license-card :deep(.el-card__body) {
-  padding: 20px;
-  background: rgba(30, 41, 59, 0.3);
+  margin-bottom: 16px;
 }
 
 .card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  color: #f1f5f9;
+  color: var(--fg-text);
   font-weight: 500;
+  font-size: 12.5px;
+  text-transform: lowercase;
+  letter-spacing: 1px;
 }
 
 .status-section,
-.host-section {
-  color: #f1f5f9;
-}
+.host-section { color: var(--fg-text); }
 
 .arbore-descriptions :deep(.el-descriptions__label) {
-  background: rgba(15, 23, 42, 0.6);
-  color: #94a3b8;
-  border-color: rgba(148, 163, 184, 0.2);
+  background: var(--bg-base);
+  color: var(--fg-muted);
+  border-color: var(--border);
+  font-weight: 500;
+  font-size: 12px;
 }
-
 .arbore-descriptions :deep(.el-descriptions__content) {
-  background: rgba(30, 41, 59, 0.3);
-  color: #f1f5f9;
-  border-color: rgba(148, 163, 184, 0.2);
+  background: var(--bg-mantle);
+  color: var(--fg-text);
+  border-color: var(--border);
+  font-size: 12.5px;
+}
+.arbore-descriptions :deep(.el-descriptions table) {
+  border-color: var(--border) !important;
 }
 
 .fingerprint-text {
-  font-family: monospace;
-  color: #10b981;
+  font-family: var(--font-mono);
+  color: var(--mocha-green);
   user-select: all;
+  font-size: 12.5px;
 }
 
 .hint-text,
 .form-tip {
-  font-size: 14px;
-  color: #94a3b8;
+  font-size: 12px;
+  color: var(--fg-muted);
   margin: 0;
 }
-
-.form-tip {
-  margin-top: 12px;
-}
+.form-tip { margin-top: 12px; }
 
 .register-form :deep(.el-form-item__label) {
-  color: #94a3b8;
-}
-
-.register-form :deep(.el-input__wrapper) {
-  background: rgba(15, 23, 42, 0.5);
-  border-color: rgba(148, 163, 184, 0.2);
-  box-shadow: none;
-}
-
-.register-form :deep(.el-input__wrapper:hover),
-.register-form :deep(.el-input__wrapper.is-focus) {
-  border-color: #10b981;
-}
-
-.register-form :deep(.el-input__inner) {
-  color: #f1f5f9;
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  text-transform: lowercase;
+  font-size: 12.5px;
 }
 </style>

@@ -16,26 +16,28 @@
     first‑class citizens without touching the core product code.
   -->
   <div class="custom-services-view">
-    <!-- 页面头部 -->
+    <!-- Page header -->
     <div class="page-header">
       <div class="header-title">
-        <h2>自定义服务管理</h2>
-        <p class="header-desc">管理您的自定义API服务，支持上传Docker镜像并自动配置</p>
+        <h2>custom services</h2>
+        <p class="header-desc">
+          Upload a Docker image tar and deploy it as a managed service.
+        </p>
       </div>
       <el-button type="primary" @click="onAddServiceClick">
         <Plus style="margin-right: 4px;" />
-        添加服务
+        add service
       </el-button>
     </div>
 
-    <!-- 服务列表 -->
+    <!-- Service list -->
     <el-card class="services-card" shadow="never">
       <template #header>
         <div class="card-header">
-          <span>服务列表</span>
+          <span class="card-title">service list</span>
           <el-button link @click="refreshServices" :loading="loading">
             <Refresh style="margin-right: 4px;" />
-            刷新
+            refresh
           </el-button>
         </div>
       </template>
@@ -45,64 +47,64 @@
         v-loading="loading"
         stripe
         style="width: 100%"
-        :empty-text="loading ? '加载中...' : '暂无自定义服务'"
+        :empty-text="loading ? 'loading...' : 'no custom services'"
       >
-        <el-table-column label="图标" width="80" align="center">
+        <el-table-column label="icon" width="80" align="center">
           <template #default="{ row }">
             <div class="service-icon-cell">
-              <component 
-                :is="getIconComponent(row.icon || 'Box')" 
+              <component
+                :is="getIconComponent(row.icon || 'Box')"
                 class="service-icon"
-                :style="{ fontSize: '24px', color: '#10b981' }"
+                :style="{ fontSize: '22px' }"
               />
             </div>
           </template>
         </el-table-column>
-        
-        <el-table-column prop="name" label="服务名称" width="180">
+
+        <el-table-column prop="name" label="name" width="180">
           <template #default="{ row }">
-            <span>{{ row.name }}</span>
+            <span class="cs-mono">{{ row.name }}</span>
           </template>
         </el-table-column>
-        
-        <el-table-column prop="description" label="描述" min-width="200">
+
+        <el-table-column prop="description" label="description" min-width="200">
           <template #default="{ row }">
-            <span class="description-text">{{ row.description || '无描述' }}</span>
+            <span class="description-text">{{ row.description || 'no description' }}</span>
           </template>
         </el-table-column>
-        
-        <el-table-column prop="port" label="端口" width="120" align="center">
+
+        <el-table-column prop="port" label="port" width="100" align="center">
           <template #default="{ row }">
             <el-tag type="success" size="small">{{ row.port }}</el-tag>
           </template>
         </el-table-column>
-        
-        <el-table-column label="容器状态" width="150" align="center">
+
+        <el-table-column label="status" width="150" align="center">
           <template #default="{ row }">
             <div class="status-cell">
-              <el-tag 
-                :type="getStatusType(row.status)" 
+              <el-tag
+                :type="getStatusType(row.status)"
                 size="small"
                 style="margin-bottom: 4px;"
               >
                 {{ getStatusText(row.status) }}
               </el-tag>
               <div v-if="row.health && row.health !== 'unknown' && row.health !== 'none'" style="margin-top: 4px;">
-                <el-tag 
-                  :type="row.health === 'healthy' ? 'success' : (row.health === 'unhealthy' ? 'danger' : 'warning')" 
+                <el-tag
+                  :type="row.health === 'healthy' ? 'success' : (row.health === 'unhealthy' ? 'danger' : 'warning')"
                   size="small"
                 >
                   {{ getHealthText(row.health, row.status) }}
                 </el-tag>
               </div>
-              <div v-if="row.container_id" style="margin-top: 4px; font-size: 11px; color: #909399;">
-                ID: {{ row.container_id }}
+              <div v-if="row.container_id" class="cs-id">
+                id: {{ row.container_id }}
               </div>
             </div>
           </template>
         </el-table-column>
-        
-        <el-table-column label="访问地址" width="250">
+
+        <el-table-column label="url" width="250">
           <template #default="{ row }">
             <el-link
               :href="getServiceUrl(row)"
@@ -114,111 +116,76 @@
             </el-link>
           </template>
         </el-table-column>
-        
-        <el-table-column label="操作" width="350" fixed="right" align="center">
+
+        <el-table-column label="actions" width="320" fixed="right" align="center">
           <template #default="{ row }">
-            <el-button
-              link
-              type="info"
-              size="small"
-              @click="showServiceDetails(row)"
-            >
-              详情
-            </el-button>
-            <el-button
-              v-if="row.has_doc"
-              link
-              type="success"
-              size="small"
-              @click="viewServiceDoc(row)"
-            >
-              文档
-            </el-button>
-            <el-button
-              link
-              type="primary"
-              size="small"
-              @click="editService(row)"
-            >
-              编辑
-            </el-button>
-            <el-button
-              link
-              type="warning"
-              size="small"
-              @click="restartService(row)"
-            >
-              重启
-            </el-button>
-            <el-button
-              link
-              type="danger"
-              size="small"
-              @click="deleteService(row)"
-            >
-              删除
-            </el-button>
+            <el-button link type="info"    size="small" @click="showServiceDetails(row)">details</el-button>
+            <el-button v-if="row.has_doc"
+                       link type="success" size="small" @click="viewServiceDoc(row)">doc</el-button>
+            <el-button link type="primary" size="small" @click="editService(row)">edit</el-button>
+            <el-button link type="warning" size="small" @click="restartService(row)">restart</el-button>
+            <el-button link type="danger"  size="small" @click="deleteService(row)">delete</el-button>
           </template>
         </el-table-column>
       </el-table>
     </el-card>
 
-    <!-- 服务详情对话框 -->
+    <!-- Service details dialog -->
     <el-dialog
       v-model="showDetailsDialog"
-      title="服务详情"
+      title="service details"
       width="80%"
       :close-on-click-modal="false"
       @close="handleDetailsDialogClose"
     >
       <div v-if="selectedService" class="service-details">
         <el-descriptions :column="2" border>
-          <el-descriptions-item label="服务名称">{{ selectedService.name }}</el-descriptions-item>
-          <el-descriptions-item label="端口">{{ selectedService.port }}</el-descriptions-item>
-          <el-descriptions-item label="描述">{{ selectedService.description }}</el-descriptions-item>
-          <el-descriptions-item label="容器状态">
+          <el-descriptions-item label="name">{{ selectedService.name }}</el-descriptions-item>
+          <el-descriptions-item label="port">{{ selectedService.port }}</el-descriptions-item>
+          <el-descriptions-item label="description">{{ selectedService.description }}</el-descriptions-item>
+          <el-descriptions-item label="status">
             <el-tag :type="getStatusType(selectedService.status)" size="small">
               {{ getStatusText(selectedService.status) }}
             </el-tag>
           </el-descriptions-item>
-          <el-descriptions-item label="健康状态" v-if="selectedService.health && selectedService.health !== 'unknown'">
-            <el-tag 
-              :type="selectedService.health === 'healthy' ? 'success' : (selectedService.health === 'unhealthy' ? 'danger' : 'warning')" 
+          <el-descriptions-item label="health" v-if="selectedService.health && selectedService.health !== 'unknown'">
+            <el-tag
+              :type="selectedService.health === 'healthy' ? 'success' : (selectedService.health === 'unhealthy' ? 'danger' : 'warning')"
               size="small"
             >
               {{ getHealthText(selectedService.health, selectedService.status) }}
             </el-tag>
           </el-descriptions-item>
-          <el-descriptions-item label="容器ID" v-if="selectedService.container_id">
+          <el-descriptions-item label="container id" v-if="selectedService.container_id">
             {{ selectedService.container_id }}
           </el-descriptions-item>
-          <el-descriptions-item label="访问地址" :span="2">
+          <el-descriptions-item label="url" :span="2">
             <el-link :href="getServiceUrl(selectedService)" target="_blank" type="primary">
               {{ getServiceUrl(selectedService) }}
             </el-link>
           </el-descriptions-item>
-          <el-descriptions-item label="说明文档" :span="2">
+          <el-descriptions-item label="documentation" :span="2">
             <template v-if="selectedService.has_doc">
               <el-button type="primary" size="small" @click="viewServiceDoc(selectedService)">
-                查看PDF文档
+                view pdf
               </el-button>
             </template>
-            <span v-else style="color: #909399;">未上传</span>
+            <span v-else class="text-muted">not uploaded</span>
           </el-descriptions-item>
         </el-descriptions>
 
         <div class="logs-section" style="margin-top: 20px;">
           <div class="logs-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-            <h3>容器日志</h3>
+            <h3>container logs</h3>
             <div>
-              <el-select v-model="logTail" size="small" style="width: 120px; margin-right: 10px;" @change="loadServiceLogs">
-                <el-option label="最近100行" :value="100" />
-                <el-option label="最近500行" :value="500" />
-                <el-option label="最近1000行" :value="1000" />
+              <el-select v-model="logTail" size="small" style="width: 130px; margin-right: 10px;" @change="loadServiceLogs">
+                <el-option label="last 100"  :value="100" />
+                <el-option label="last 500"  :value="500" />
+                <el-option label="last 1000" :value="1000" />
               </el-select>
               <el-button size="small" @click="loadServiceLogs" :loading="logsLoading">
                 <Refresh style="margin-right: 4px;" />
-                刷新
+                refresh
               </el-button>
             </div>
           </div>
@@ -229,10 +196,10 @@
       </div>
     </el-dialog>
 
-    <!-- 添加/编辑服务对话框 -->
+    <!-- Add / edit service dialog -->
     <el-dialog
       v-model="showAddDialog"
-      :title="editingService ? '编辑服务' : '添加服务'"
+      :title="editingService ? 'edit service' : 'add service'"
       width="600px"
       :close-on-click-modal="false"
       @close="handleDialogClose"
@@ -241,34 +208,25 @@
         ref="serviceFormRef"
         :model="serviceForm"
         :rules="formRules"
-        label-width="100px"
+        label-width="140px"
         label-position="left"
       >
-        <el-form-item label="服务图标" prop="icon">
+        <el-form-item label="icon" prop="icon">
           <div class="icon-selector-wrapper">
-            <el-button 
-              class="icon-selector-trigger"
-              @click="showIconSelector = true"
-            >
-              <component 
-                :is="getIconComponent(serviceForm.icon)" 
-                class="icon-trigger-icon"
-              />
-              <span class="icon-trigger-text">选择图标</span>
+            <el-button class="icon-selector-trigger" @click="showIconSelector = true">
+              <component :is="getIconComponent(serviceForm.icon)" class="icon-trigger-icon" />
+              <span class="icon-trigger-text">choose icon</span>
             </el-button>
             <div class="icon-preview-container">
-              <component 
-                :is="getIconComponent(serviceForm.icon)" 
-                class="icon-preview-large"
-              />
+              <component :is="getIconComponent(serviceForm.icon)" class="icon-preview-large" />
               <span class="icon-preview-name">{{ getIconLabel(serviceForm.icon) }}</span>
             </div>
           </div>
-          
-          <!-- 图标选择弹窗 -->
+
+          <!-- Icon picker dialog -->
           <el-dialog
             v-model="showIconSelector"
-            title="选择图标"
+            title="choose icon"
             width="800px"
             :close-on-click-modal="true"
             class="icon-selector-dialog"
@@ -276,12 +234,12 @@
             <div class="icon-selector-search">
               <el-input
                 v-model="iconSearchText"
-                placeholder="搜索图标..."
+                placeholder="search icons..."
                 clearable
                 :prefix-icon="Search"
               />
             </div>
-            
+
             <div class="icon-selector-grid">
               <div
                 v-for="icon in filteredIcons"
@@ -297,26 +255,26 @@
           </el-dialog>
         </el-form-item>
 
-        <el-form-item label="服务名称" prop="name">
+        <el-form-item label="name" prop="name">
           <el-input
             v-model="serviceForm.name"
-            placeholder="例如: my-api-service"
+            placeholder="e.g. my-api-service"
             :disabled="!!editingService"
             @blur="handleNameBlur"
           />
-          <div class="form-tip">只能包含小写字母、数字和连字符</div>
+          <div class="form-tip">lowercase letters, digits and hyphens only</div>
         </el-form-item>
 
-        <el-form-item label="描述信息" prop="description">
+        <el-form-item label="description" prop="description">
           <el-input
             v-model="serviceForm.description"
             type="textarea"
             :rows="2"
-            placeholder="请输入服务描述"
+            placeholder="enter service description"
           />
         </el-form-item>
 
-        <el-form-item label="宿主机端口" prop="port">
+        <el-form-item label="host port" prop="port">
           <el-input-number
             v-model="serviceForm.port"
             :min="7000"
@@ -324,10 +282,10 @@
             :step="1"
             style="width: 100%"
           />
-          <div class="form-tip">端口范围：7000-7999，这是对外访问的端口（格式：http://服务器IP:端口）</div>
+          <div class="form-tip">port range 7000-7999. external url: http://server-ip:port</div>
         </el-form-item>
 
-        <el-form-item label="容器内端口" prop="container_port">
+        <el-form-item label="container port" prop="container_port">
           <el-input-number
             v-model="serviceForm.container_port"
             :min="1"
@@ -335,37 +293,41 @@
             :step="1"
             style="width: 100%"
           />
-          <div class="form-tip">容器内服务实际监听的端口，默认与宿主机端口一致。如果服务硬编码了端口（如8000），可以修改为实际端口，系统会自动映射到宿主机端口</div>
+          <div class="form-tip">
+            internal port the container listens on. defaults to host port. if the
+            service hardcodes a different port (e.g. 8000), set it here and the
+            system will map it to the host port automatically.
+          </div>
         </el-form-item>
 
-        <el-form-item label="内存限制 (MB)" prop="memory_limit_mb">
+        <el-form-item label="memory limit (mb)" prop="memory_limit_mb">
           <el-input-number
             v-model="serviceForm.memory_limit_mb"
             :min="0"
             :max="65536"
             :step="256"
             style="width: 100%"
-            placeholder="不填则不限制"
+            placeholder="leave empty for no limit"
             controls-position="right"
           />
-          <div class="form-tip">容器最大可用内存（MB），如 4096 表示 4GB。修改后需重启容器生效</div>
+          <div class="form-tip">max memory the container may use (mb). e.g. 4096 = 4 gb. restart required to apply.</div>
         </el-form-item>
-        <el-form-item label="内存预留 (MB)" prop="memory_reservation_mb">
+        <el-form-item label="memory reservation (mb)" prop="memory_reservation_mb">
           <el-input-number
             v-model="serviceForm.memory_reservation_mb"
             :min="0"
             :max="65536"
             :step="256"
             style="width: 100%"
-            placeholder="可选"
+            placeholder="optional"
             controls-position="right"
           />
-          <div class="form-tip">容器保证可用内存（MB），可选。修改后需重启容器生效</div>
+          <div class="form-tip">soft memory reservation (mb). optional. restart required to apply.</div>
         </el-form-item>
 
         <el-form-item
           v-if="!editingService"
-          label="Docker镜像"
+          label="docker image"
           prop="file"
         >
           <div class="file-upload-wrapper">
@@ -379,20 +341,20 @@
             <label for="file-input-tar" class="file-input-label">
               <el-button type="primary" style="pointer-events: none;">
                 <Upload style="margin-right: 4px;" />
-                选择tar文件
+                choose tar file
               </el-button>
             </label>
             <div v-if="serviceForm.file" class="file-name">
               {{ serviceForm.file.name }}
             </div>
             <div class="form-tip">
-              请上传已打包的Docker镜像tar文件
+              upload a packaged docker image .tar file
             </div>
           </div>
         </el-form-item>
 
-        <!-- 说明文档上传 -->
-        <el-form-item label="说明文档">
+        <!-- Documentation upload -->
+        <el-form-item label="documentation">
           <div class="file-upload-wrapper">
             <input
               id="file-input-doc"
@@ -404,30 +366,28 @@
             <label for="file-input-doc" class="file-input-label">
               <el-button type="success" style="pointer-events: none;">
                 <Upload style="margin-right: 4px;" />
-                选择PDF文件
+                choose pdf
               </el-button>
             </label>
             <div v-if="serviceForm.docFile" class="file-name">
               {{ serviceForm.docFile.name }}
-              <el-button link type="danger" size="small" @click="removeDocFile" style="margin-left: 8px;">移除</el-button>
+              <el-button link type="danger" size="small" @click="removeDocFile" style="margin-left: 8px;">remove</el-button>
             </div>
             <div v-else-if="editingService && editingService.has_doc" class="file-name">
-              <el-tag type="success" size="small">已有文档</el-tag>
-              <el-button link type="primary" size="small" @click="viewServiceDoc(editingService)" style="margin-left: 8px;">查看</el-button>
-              <el-button link type="danger" size="small" @click="deleteServiceDoc(editingService)" style="margin-left: 4px;">删除文档</el-button>
+              <el-tag type="success" size="small">doc available</el-tag>
+              <el-button link type="primary" size="small" @click="viewServiceDoc(editingService)"  style="margin-left: 8px;">view</el-button>
+              <el-button link type="danger"  size="small" @click="deleteServiceDoc(editingService)" style="margin-left: 4px;">delete doc</el-button>
             </div>
             <div class="form-tip">
-              可选，上传PDF格式的服务说明文档，方便后续查看
+              optional pdf documentation that will be available later in details.
             </div>
           </div>
         </el-form-item>
 
-        <!-- 环境变量配置 -->
-        <el-form-item
-          label="环境变量"
-        >
+        <!-- Env vars -->
+        <el-form-item label="env vars">
           <el-tabs v-model="envTabType" class="env-vars-tabs">
-            <el-tab-pane label="表单模式" name="form">
+            <el-tab-pane label="form" name="form">
               <div class="env-vars-form">
                 <div
                   v-for="(item, index) in envVars"
@@ -436,35 +396,24 @@
                 >
                   <el-input
                     v-model="item.key"
-                    placeholder="变量名"
+                    placeholder="key"
                     style="width: 200px; margin-right: 8px;"
                   />
                   <el-input
                     v-model="item.value"
-                    placeholder="变量值"
+                    placeholder="value"
                     type="password"
                     show-password
                     style="flex: 1; margin-right: 8px;"
                   />
-                  <el-button
-                    type="danger"
-                    link
-                    @click="removeEnvVar(index)"
-                  >
-                    删除
-                  </el-button>
+                  <el-button type="danger" link @click="removeEnvVar(index)">remove</el-button>
                 </div>
-                <el-button
-                  type="primary"
-                  link
-                  @click="addEnvVar"
-                  style="margin-top: 8px;"
-                >
-                  + 添加变量
+                <el-button type="primary" link @click="addEnvVar" style="margin-top: 8px;">
+                  + add variable
                 </el-button>
               </div>
             </el-tab-pane>
-            <el-tab-pane label="JSON模式" name="json">
+            <el-tab-pane label="json" name="json">
               <el-input
                 v-model="envVarsJson"
                 type="textarea"
@@ -473,18 +422,16 @@
                 class="env-vars-json-input"
               />
               <div class="form-tip">
-                请输入JSON格式的环境变量配置，例如: {"KEY1": "value1", "KEY2": "value2"}
+                json object, e.g. {"KEY1": "value1", "KEY2": "value2"}
               </div>
             </el-tab-pane>
           </el-tabs>
         </el-form-item>
 
-        <!-- 卷挂载配置 -->
-        <el-form-item
-          label="卷挂载"
-        >
+        <!-- Volumes -->
+        <el-form-item label="volumes">
           <el-tabs v-model="volumesTabType" class="env-vars-tabs">
-            <el-tab-pane label="表单模式" name="form">
+            <el-tab-pane label="form" name="form">
               <div class="env-vars-form">
                 <div
                   v-for="(item, index) in volumesList"
@@ -493,39 +440,23 @@
                 >
                   <el-input
                     v-model="item.hostPath"
-                    placeholder="宿主机路径（如: /path/to/huggingface/models）"
+                    placeholder="host path (e.g. /path/to/huggingface/models)"
                     style="flex: 1; margin-right: 8px;"
                   />
                   <el-input
                     v-model="item.containerPath"
-                    placeholder="容器内路径（如: /models）"
+                    placeholder="container path (e.g. /models)"
                     style="flex: 1; margin-right: 8px;"
                   />
-                  <el-checkbox
-                    v-model="item.readOnly"
-                    style="margin-right: 8px;"
-                  >
-                    只读
-                  </el-checkbox>
-                  <el-button
-                    type="danger"
-                    link
-                    @click="removeVolume(index)"
-                  >
-                    删除
-                  </el-button>
+                  <el-checkbox v-model="item.readOnly" style="margin-right: 8px;">read-only</el-checkbox>
+                  <el-button type="danger" link @click="removeVolume(index)">remove</el-button>
                 </div>
-                <el-button
-                  type="primary"
-                  link
-                  @click="addVolume"
-                  style="margin-top: 8px;"
-                >
-                  + 添加挂载
+                <el-button type="primary" link @click="addVolume" style="margin-top: 8px;">
+                  + add mount
                 </el-button>
               </div>
             </el-tab-pane>
-            <el-tab-pane label="JSON模式" name="json">
+            <el-tab-pane label="json" name="json">
               <el-input
                 v-model="volumesJson"
                 type="textarea"
@@ -534,22 +465,20 @@
                 class="env-vars-json-input"
               />
               <div class="form-tip">
-                请输入JSON数组格式的卷挂载配置，例如: ["/host/path:/container/path", "/host/path2:/container/path2:ro"]
-                <br>
-                格式说明：每个挂载项为字符串，格式为 "宿主机路径:容器内路径" 或 "宿主机路径:容器内路径:ro"（ro表示只读）
+                json array of strings, format: "host_path:container_path" or
+                "host_path:container_path:ro" (ro = read-only).
               </div>
             </el-tab-pane>
           </el-tabs>
         </el-form-item>
 
         <el-form-item v-if="!editingService">
-          <el-alert
-            type="info"
-            :closable="false"
-            show-icon
-          >
+          <el-alert type="info" :closable="false" show-icon>
             <template #default>
-              <span class="alert-text">自定义服务内部端口范围：7000-7999，通过nginx路径区分不同服务，nginx统一对外提供访问</span>
+              <span class="alert-text">
+                custom service ports range 7000-7999. nginx routes by path; the
+                whole range is exposed through a single nginx entry point.
+              </span>
             </template>
           </el-alert>
         </el-form-item>
@@ -557,13 +486,13 @@
 
       <template #footer>
         <div class="dialog-footer">
-          <el-button @click="showAddDialog = false">取消</el-button>
+          <el-button @click="showAddDialog = false">cancel</el-button>
           <el-button
             type="primary"
             @click="submitService"
             :loading="submitting"
           >
-            {{ editingService ? '更新' : '部署' }}
+            {{ editingService ? 'update' : 'deploy' }}
           </el-button>
         </div>
       </template>
@@ -591,7 +520,7 @@
       <div class="upload-progress-body">
         <div class="up-section">
           <div class="up-section-head">
-            <span class="up-section-title">浏览器 → 服务器（上传镜像）</span>
+            <span class="up-section-title">browser → server (image upload)</span>
             <span class="up-section-pct">{{ uploadProgress.uploadPct }}%</span>
           </div>
           <el-progress
@@ -610,7 +539,7 @@
 
         <div class="up-section">
           <div class="up-section-head">
-            <span class="up-section-title">服务器处理</span>
+            <span class="up-section-title">server processing</span>
             <span class="up-section-pct">{{ uploadProgress.serverPct }}%</span>
           </div>
           <el-progress
@@ -641,7 +570,7 @@
           type="error"
           :closable="false"
           show-icon
-          :title="'部署失败' + (uploadProgress.errorStage ? '（阶段：' + stageLabelOf(uploadProgress.errorStage) + '）' : '')"
+          :title="'deployment failed' + (uploadProgress.errorStage ? ' (stage: ' + stageLabelOf(uploadProgress.errorStage) + ')' : '')"
           :description="uploadProgress.errorMessage"
           style="margin-top: 14px;"
         />
@@ -651,8 +580,8 @@
           type="success"
           :closable="false"
           show-icon
-          title="部署成功"
-          description="服务已部署并启动，可在列表中查看"
+          title="deployment succeeded"
+          description="service deployed and running. it is visible in the list above."
           style="margin-top: 14px;"
         />
       </div>
@@ -663,12 +592,12 @@
           type="danger"
           plain
           @click="cancelUpload"
-        >取消上传</el-button>
+        >cancel upload</el-button>
         <el-button
           v-if="uploadProgress.finished"
           type="primary"
           @click="closeUploadDialog"
-        >关闭</el-button>
+        >close</el-button>
       </template>
     </el-dialog>
   </div>
@@ -779,7 +708,7 @@ const getEnvVarsJson = () => {
       JSON.parse(envVarsJson.value)
       return envVarsJson.value
     } catch (e) {
-      throw new Error('环境变量JSON格式错误')
+      throw new Error('env vars json is invalid')
     }
   } else {
     // 表单模式：转换为JSON
@@ -807,11 +736,11 @@ const getVolumesJson = () => {
       // 验证JSON格式
       const parsed = JSON.parse(volumesJson.value)
       if (!Array.isArray(parsed)) {
-        throw new Error('卷挂载配置必须是数组格式')
+        throw new Error('volumes must be a json array')
       }
       return volumesJson.value
     } catch (e) {
-      throw new Error('卷挂载JSON格式错误: ' + e.message)
+      throw new Error('volumes json is invalid: ' + e.message)
     }
   } else {
     // 表单模式：转换为JSON数组
@@ -887,38 +816,38 @@ const handleNameBlur = () => {
 
 const formRules = {
   name: [
-    { required: true, message: '请输入服务名称', trigger: 'blur' },
+    { required: true, message: 'name is required', trigger: 'blur' },
     {
       pattern: /^[a-z0-9-]+$/,
-      message: '服务名称只能包含小写字母、数字和连字符',
-      trigger: 'blur'
-    }
+      message: 'name may only contain lowercase letters, digits and hyphens',
+      trigger: 'blur',
+    },
   ],
   description: [
-    { required: true, message: '请输入服务描述', trigger: 'blur' }
+    { required: true, message: 'description is required', trigger: 'blur' },
   ],
   port: [
-    { required: true, message: '请输入端口号', trigger: 'blur' },
+    { required: true, message: 'port is required', trigger: 'blur' },
     {
       type: 'number',
       min: 7000,
       max: 7999,
-      message: '端口必须在7000-7999范围内',
-      trigger: 'blur'
-    }
+      message: 'port must be in the 7000-7999 range',
+      trigger: 'blur',
+    },
   ],
   file: [
     {
       validator: (rule, value, callback) => {
         if (!editingService.value && !serviceForm.file) {
-          callback(new Error('请选择Docker镜像tar文件'))
+          callback(new Error('select a docker image tar file'))
         } else {
           callback()
         }
       },
-      trigger: 'change'
-    }
-  ]
+      trigger: 'change',
+    },
+  ],
 }
 
 const getServerIP = () => {
@@ -941,41 +870,41 @@ const getStatusType = (status) => {
   return 'info'
 }
 
-// 获取状态文本（中文显示）
+// 获取状态文本（英文显示）
 const getStatusText = (status) => {
-  if (!status) return '未知'
+  if (!status) return 'unknown'
   const statusLower = status.toLowerCase()
   const statusMap = {
-    'running': '运行中',
-    'stopped': '已停止',
-    'exited': '已退出',
-    'restarting': '重启中',
-    'paused': '已暂停',
-    'not_found': '未找到',
-    'created': '已创建',
-    'removing': '删除中'
+    'running':    'running',
+    'stopped':    'stopped',
+    'exited':     'exited',
+    'restarting': 'restarting',
+    'paused':     'paused',
+    'not_found':  'not found',
+    'created':    'created',
+    'removing':   'removing',
   }
-  return statusMap[statusLower] || status
+  return statusMap[statusLower] || statusLower
 }
 
-// 获取健康状态文本（中文显示）
+// 获取健康状态文本（英文显示）
 const getHealthText = (health, containerStatus) => {
-  if (!health) return '未知'
+  if (!health) return 'unknown'
   const healthLower = health.toLowerCase()
   const statusLower = containerStatus ? containerStatus.toLowerCase() : ''
-  
-  // 如果容器已经运行，健康检查还在starting，显示为"健康检查中"
+
+  // 容器已 running 但 health 还在 starting，明确告诉用户在做健康检查
   if (healthLower === 'starting' && statusLower === 'running') {
-    return '健康检查中'
+    return 'health-checking'
   }
-  
+
   const healthMap = {
-    'healthy': '健康',
-    'unhealthy': '不健康',
-    'starting': '启动中',
-    'none': '无检查'
+    'healthy':   'healthy',
+    'unhealthy': 'unhealthy',
+    'starting':  'starting',
+    'none':      'no check',
   }
-  return healthMap[healthLower] || health
+  return healthMap[healthLower] || healthLower
 }
 
 const refreshServices = async () => {
@@ -992,7 +921,7 @@ const refreshServices = async () => {
   } catch (error) {
     console.error('Failed to fetch services:', error)
     console.error('Error response:', error.response)
-    ElMessage.error('获取服务列表失败: ' + (error.response?.data?.detail || error.message))
+    ElMessage.error('failed to fetch services: ' + (error.response?.data?.detail || error.message))
   } finally {
     loading.value = false
   }
@@ -1012,7 +941,7 @@ const handleDocFileChange = (event) => {
   const file = event.target.files?.[0]
   if (file) {
     if (!file.name.toLowerCase().endsWith('.pdf')) {
-      ElMessage.error('只支持PDF格式的说明文档')
+      ElMessage.error('only pdf documentation is supported')
       return
     }
     serviceForm.docFile = file
@@ -1032,13 +961,13 @@ const viewServiceDoc = (service) => {
 
 const deleteServiceDoc = async (service) => {
   try {
-    await ElMessageBox.confirm('确定要删除该服务的说明文档吗？', '确认删除', {
-      confirmButtonText: '确定',
-      cancelButtonText: '取消',
-      type: 'warning'
+    await ElMessageBox.confirm('delete the documentation file for this service?', 'confirm delete', {
+      confirmButtonText: 'delete',
+      cancelButtonText: 'cancel',
+      type: 'warning',
     })
     await axios.delete(`/admin-api/api/v1/custom-services/${service.name}/doc`)
-    ElMessage.success('说明文档已删除')
+    ElMessage.success('documentation deleted')
     service.has_doc = false
     if (editingService.value) {
       editingService.value.has_doc = false
@@ -1046,7 +975,7 @@ const deleteServiceDoc = async (service) => {
     await refreshServices()
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error('删除说明文档失败: ' + (error.response?.data?.detail || error.message))
+      ElMessage.error('failed to delete documentation: ' + (error.response?.data?.detail || error.message))
     }
   }
 }
@@ -1061,12 +990,12 @@ async function onAddServiceClick() {
       showAddDialog.value = true
       return
     }
-    ElMessage.warning('请先完成许可证注册后再添加自定义服务')
+    ElMessage.warning('register a license before adding custom services')
     if (typeof setActiveTab === 'function') {
       setActiveTab('license')
     }
   } catch (err) {
-    ElMessage.error('验证注册状态失败: ' + (err.response?.data?.detail?.message || err.message))
+    ElMessage.error('failed to verify registration: ' + (err.response?.data?.detail?.message || err.message))
     if (typeof setActiveTab === 'function') {
       setActiveTab('license')
     }
@@ -1110,11 +1039,11 @@ const submitService = async () => {
             updateData.env_vars = envVarsJsonStr
           }
         } catch (error) {
-          ElMessage.error(error.message || '环境变量配置错误')
+          ElMessage.error(error.message || 'invalid env vars')
           submitting.value = false
           return
         }
-        
+
         // 添加卷挂载配置（如果配置了）
         try {
           const volumesJsonStr = getVolumesJson()
@@ -1122,7 +1051,7 @@ const submitService = async () => {
             updateData.volumes = volumesJsonStr
           }
         } catch (error) {
-          ElMessage.error(error.message || '卷挂载配置错误')
+          ElMessage.error(error.message || 'invalid volumes')
           submitting.value = false
           return
         }
@@ -1143,16 +1072,16 @@ const submitService = async () => {
               { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 60000 }
             )
           } catch (docErr) {
-            console.error('上传说明文档失败:', docErr)
-            ElMessage.warning('服务已更新，但说明文档上传失败')
+            console.error('failed to upload documentation:', docErr)
+            ElMessage.warning('service updated but documentation upload failed')
           }
         }
-        
-        ElMessage.success('服务更新成功')
+
+        ElMessage.success('service updated')
       } else {
         // 添加服务
         if (!serviceForm.file) {
-          ElMessage.error('请选择Docker镜像tar文件')
+          ElMessage.error('select a docker image tar file')
           submitting.value = false
           return
         }
@@ -1176,13 +1105,13 @@ const submitService = async () => {
           })
         } catch (error) {
           // 验证失败，立即返回，不进行文件上传
-          let errorMessage = '验证失败'
+          let errorMessage = 'validation failed'
           if (error.response?.data?.detail) {
             errorMessage = error.response.data.detail
           } else if (error.response) {
-            errorMessage = `服务器错误: ${error.response.status} ${error.response.statusText}`
+            errorMessage = `server error: ${error.response.status} ${error.response.statusText}`
           }
-          ElMessage.error('部署服务失败: ' + errorMessage)
+          ElMessage.error('deploy failed: ' + errorMessage)
           submitting.value = false
           return
         }
@@ -1209,31 +1138,25 @@ const submitService = async () => {
         // 添加环境变量配置
         try {
           const envVarsJsonStr = getEnvVarsJson()
-          console.log('准备发送的环境变量:', envVarsJsonStr)
+          console.log('env vars payload:', envVarsJsonStr)
           if (envVarsJsonStr && envVarsJsonStr.trim()) {
             formData.append('env_vars', envVarsJsonStr)
-            console.log('已添加环境变量到FormData')
-          } else {
-            console.log('环境变量为空，跳过')
           }
         } catch (error) {
-          ElMessage.error(error.message || '环境变量配置错误')
+          ElMessage.error(error.message || 'invalid env vars')
           submitting.value = false
           return
         }
-        
+
         // 添加卷挂载配置
         try {
           const volumesJsonStr = getVolumesJson()
-          console.log('准备发送的卷挂载:', volumesJsonStr)
+          console.log('volumes payload:', volumesJsonStr)
           if (volumesJsonStr && volumesJsonStr.trim()) {
             formData.append('volumes', volumesJsonStr)
-            console.log('已添加卷挂载到FormData')
-          } else {
-            console.log('卷挂载为空，跳过')
           }
         } catch (error) {
-          ElMessage.error(error.message || '卷挂载配置错误')
+          ElMessage.error(error.message || 'invalid volumes')
           submitting.value = false
           return
         }
@@ -1246,20 +1169,20 @@ const submitService = async () => {
         // 走流式上传：XHR 发请求，前端解析 NDJSON 事件实时显示进度
         await uploadWithProgress(formData)
 
-        ElMessage.success('服务部署成功')
+        ElMessage.success('service deployed')
       }
 
       showAddDialog.value = false
       resetForm()
       await refreshServices()
     } catch (error) {
-      console.error('服务操作失败:', error)
-      let errorMessage = '未知错误'
+      console.error('service operation failed:', error)
+      let errorMessage = 'unknown error'
 
       if (error && error.isUploadFailure) {
         // 流式上传里抛出的错误，已经在弹窗里展示，这里只静默 toast 简短提示
-        errorMessage = error.message || '上传失败'
-        ElMessage.error('部署服务失败: ' + errorMessage)
+        errorMessage = error.message || 'upload failed'
+        ElMessage.error('deploy failed: ' + errorMessage)
         submitting.value = false
         return
       }
@@ -1269,17 +1192,17 @@ const submitService = async () => {
         if (detail) {
           errorMessage = detail
         } else {
-          errorMessage = `服务器错误: ${error.response.status} ${error.response.statusText}`
+          errorMessage = `server error: ${error.response.status} ${error.response.statusText}`
         }
       } else if (error.request) {
-        errorMessage = '无法连接到服务器，请检查后端服务是否运行'
+        errorMessage = 'cannot reach server — is the backend running?'
       } else {
-        errorMessage = error.message || '未知错误'
+        errorMessage = error.message || 'unknown error'
       }
 
       ElMessage.error(
-        (editingService.value ? '更新' : '部署') +
-        '服务失败: ' + errorMessage
+        (editingService.value ? 'update' : 'deploy') +
+        ' failed: ' + errorMessage,
       )
     } finally {
       submitting.value = false
@@ -1294,17 +1217,17 @@ const submitService = async () => {
 // 前端用 XHR 同步监听上传字节进度（xhr.upload.onprogress），并在 readyState=3
 // 时增量解析 responseText 中的 NDJSON 行，把阶段更新到 uploadProgress。
 const STAGE_DEFS = [
-  { key: 'validating',             label: '校验配置' },
-  { key: 'uploading_to_portainer', label: '传输到 Portainer 并加载镜像' },
-  { key: 'image_loaded',           label: '镜像加载完成', virtual: true },
-  { key: 'creating_container',     label: '创建容器' },
-  { key: 'starting_container',     label: '启动容器' },
-  { key: 'saving_doc',             label: '保存说明文档' },
+  { key: 'validating',             label: 'validate config' },
+  { key: 'uploading_to_portainer', label: 'transfer to portainer and load image' },
+  { key: 'image_loaded',           label: 'image loaded', virtual: true },
+  { key: 'creating_container',     label: 'create container' },
+  { key: 'starting_container',     label: 'start container' },
+  { key: 'saving_doc',             label: 'save documentation' },
 ]
 
 const uploadProgress = reactive({
   visible: false,
-  title: '部署服务',
+  title: 'deploy service',
   finished: false,
   success: false,
   // 浏览器 -> 服务器 上传进度
@@ -1418,7 +1341,7 @@ const handleEvent = (ev) => {
       uploadProgress.finished = true
       break
     case 'error':
-      uploadProgress.errorMessage = ev.message || '未知错误'
+      uploadProgress.errorMessage = ev.message || 'unknown error'
       uploadProgress.errorStage = ev.stage || ''
       uploadProgress.serverStatus = 'exception'
       uploadProgress.uploadStatus = uploadProgress.uploadPct >= 100 ? '' : 'exception'
@@ -1436,7 +1359,7 @@ const handleEvent = (ev) => {
 
 const uploadWithProgress = (formData) => {
   // 重置进度状态
-  uploadProgress.title = '部署服务'
+  uploadProgress.title = 'deploy service'
   uploadProgress.finished = false
   uploadProgress.success = false
   uploadProgress.uploadPct = 0
@@ -1518,7 +1441,7 @@ const uploadWithProgress = (formData) => {
         if (xhr.status === 0) {
           // 用户主动取消或网络中断
           if (!uploadProgress.errorMessage) {
-            uploadProgress.errorMessage = '已取消或网络中断'
+            uploadProgress.errorMessage = 'cancelled or network interrupted'
             uploadProgress.serverStatus = 'exception'
             uploadProgress.uploadStatus = 'exception'
             const active = uploadProgress.stages.find(s => s.state === 'active')
@@ -1532,7 +1455,7 @@ const uploadWithProgress = (formData) => {
           // 后端在还没开始流式响应前就报错（比如 502/504）
           if (!uploadProgress.errorMessage) {
             uploadProgress.errorMessage =
-              `服务器返回 ${xhr.status} ${xhr.statusText || ''}`.trim()
+              `server returned ${xhr.status} ${xhr.statusText || ''}`.trim()
             uploadProgress.serverStatus = 'exception'
             uploadProgress.finished = true
           }
@@ -1546,7 +1469,7 @@ const uploadWithProgress = (formData) => {
           resolve()
         } else {
           // 流结束但既没 done 也没 error，标记失败
-          uploadProgress.errorMessage = '响应非法结束（既未完成也未报错）'
+          uploadProgress.errorMessage = 'response ended without done or error event'
           uploadProgress.serverStatus = 'exception'
           uploadProgress.finished = true
           reject(Object.assign(new Error(uploadProgress.errorMessage), { isUploadFailure: true }))
@@ -1555,7 +1478,7 @@ const uploadWithProgress = (formData) => {
     }
 
     xhr.onerror = () => {
-      uploadProgress.errorMessage = '网络请求失败'
+      uploadProgress.errorMessage = 'network request failed'
       uploadProgress.serverStatus = 'exception'
       uploadProgress.uploadStatus = 'exception'
       uploadProgress.finished = true
@@ -1568,9 +1491,9 @@ const uploadWithProgress = (formData) => {
 const cancelUpload = async () => {
   try {
     await ElMessageBox.confirm(
-      '确定要取消上传吗？已经传输到服务器的内容会丢失。',
-      '取消上传',
-      { type: 'warning', confirmButtonText: '取消上传', cancelButtonText: '继续等待' },
+      'cancel upload? bytes already sent to the server will be discarded.',
+      'cancel upload',
+      { type: 'warning', confirmButtonText: 'cancel upload', cancelButtonText: 'keep waiting' },
     )
   } catch { return }
   if (currentXhr) {
@@ -1614,18 +1537,17 @@ const editService = async (service) => {
       // 如果没有环境变量，清空（但不显示错误，因为可能确实没有配置）
       envVars.value = []
       envVarsJson.value = ''
-      console.log('该服务未配置环境变量')
+      console.log('no env vars configured for this service')
     }
   } catch (error) {
-    console.error('加载环境变量失败:', error)
+    console.error('failed to load env vars:', error)
     // 如果API调用失败（404等），说明可能没有.env文件，这是正常的
     if (error.response?.status === 404) {
       // 404表示没有配置文件，这是正常的，清空即可
       envVars.value = []
       envVarsJson.value = ''
     } else {
-      // 其他错误才提示
-      console.warn('加载环境变量时出错:', error.message)
+      console.warn('error loading env vars:', error.message)
       envVars.value = []
       envVarsJson.value = ''
     }
@@ -1652,16 +1574,16 @@ const editService = async (service) => {
       // 如果没有卷挂载，清空
       volumesList.value = []
       volumesJson.value = ''
-      console.log('该服务未配置卷挂载')
+      console.log('no volumes configured for this service')
     }
   } catch (error) {
-    console.error('加载卷挂载失败:', error)
+    console.error('failed to load volumes:', error)
     // 如果API调用失败（404等），说明可能没有配置，这是正常的
     if (error.response?.status === 404) {
       volumesList.value = []
       volumesJson.value = ''
     } else {
-      console.warn('加载卷挂载时出错:', error.message)
+      console.warn('error loading volumes:', error.message)
       volumesList.value = []
       volumesJson.value = ''
     }
@@ -1700,13 +1622,13 @@ const loadServiceLogs = async () => {
     if (Array.isArray(lines) && lines.length > 0) {
       serviceLogs.value = [...lines].reverse().join('\n')
     } else {
-      serviceLogs.value = '暂无日志'
+      serviceLogs.value = 'no logs'
     }
   } catch (error) {
-    console.error('加载日志失败:', error)
-    const errorMsg = error.response?.data?.detail || error.message || '未知错误'
-    serviceLogs.value = `加载日志失败: ${errorMsg}`
-    ElMessage.error('加载日志失败: ' + errorMsg)
+    console.error('failed to load logs:', error)
+    const errorMsg = error.response?.data?.detail || error.message || 'unknown error'
+    serviceLogs.value = `failed to load logs: ${errorMsg}`
+    ElMessage.error('failed to load logs: ' + errorMsg)
   } finally {
     logsLoading.value = false
   }
@@ -1715,30 +1637,29 @@ const loadServiceLogs = async () => {
 const restartService = async (service) => {
   try {
     await ElMessageBox.confirm(
-      `确定要重启服务 "${service.name}" 吗？\n\n此操作将重新创建并启动容器，以加载最新的环境变量和配置。`,
-      '确认重启容器',
+      `restart service "${service.name}"?\n\nthe container will be re-created and restarted so updated env vars / volumes take effect.`,
+      'confirm restart',
       {
-        confirmButtonText: '确定重启',
-        cancelButtonText: '取消',
-        type: 'warning'
-      }
+        confirmButtonText: 'restart',
+        cancelButtonText: 'cancel',
+        type: 'warning',
+      },
     )
 
-    console.log(`正在重启服务: ${service.name}`)
+    console.log(`restarting service: ${service.name}`)
     const response = await axios.post(`/admin-api/api/v1/custom-services/${service.name}/restart`)
-    console.log('重启服务响应:', response.data)
-    
-    ElMessage.success('服务重启成功')
+    console.log('restart response:', response.data)
+
+    ElMessage.success('service restarted')
     await refreshServices()
-    // 如果详情对话框打开，刷新日志
     if (showDetailsDialog.value && selectedService.value?.name === service.name) {
       await loadServiceLogs()
     }
   } catch (error) {
     if (error !== 'cancel') {
-      console.error('重启服务失败:', error)
-      const errorMsg = error.response?.data?.detail || error.message || '未知错误'
-      ElMessage.error('重启服务失败: ' + errorMsg)
+      console.error('failed to restart service:', error)
+      const errorMsg = error.response?.data?.detail || error.message || 'unknown error'
+      ElMessage.error('failed to restart service: ' + errorMsg)
     }
   }
 }
@@ -1746,30 +1667,30 @@ const restartService = async (service) => {
 const deleteService = async (service) => {
   try {
     await ElMessageBox.confirm(
-      `确定要删除服务 "${service.name}" 吗？此操作将停止并删除容器，并从配置中移除。`,
-      '确认删除',
+      `delete service "${service.name}"? the container will be stopped and removed, and the entry deleted from config.`,
+      'confirm delete',
       {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
-        type: 'warning'
-      }
+        confirmButtonText: 'delete',
+        cancelButtonText: 'cancel',
+        type: 'warning',
+      },
     )
 
-    console.log(`正在删除服务: ${service.name}`)
+    console.log(`deleting service: ${service.name}`)
     const response = await axios.delete(`/admin-api/api/v1/custom-services/${service.name}`)
-    console.log('删除服务响应:', response.data)
-    
+    console.log('delete response:', response.data)
+
     if (response.data.warnings && response.data.warnings.length > 0) {
-      ElMessage.warning(`服务已删除，但有警告: ${response.data.warnings.join('; ')}`)
+      ElMessage.warning(`service deleted with warnings: ${response.data.warnings.join('; ')}`)
     } else {
-      ElMessage.success('服务删除成功')
+      ElMessage.success('service deleted')
     }
     await refreshServices()
   } catch (error) {
     if (error !== 'cancel') {
-      console.error('删除服务失败:', error)
-      const errorMsg = error.response?.data?.detail || error.message || '未知错误'
-      ElMessage.error('删除服务失败: ' + errorMsg)
+      console.error('failed to delete service:', error)
+      const errorMsg = error.response?.data?.detail || error.message || 'unknown error'
+      ElMessage.error('failed to delete service: ' + errorMsg)
     }
   }
 }
@@ -1890,6 +1811,28 @@ onBeforeUnmount(() => {
   color: var(--fg-text);
   font-weight: 500;
 }
+.card-title {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.cs-mono {
+  font-family: var(--font-mono);
+  color: var(--fg-text);
+  font-size: 12.5px;
+}
+
+.cs-id {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+}
+
+.text-muted { color: var(--fg-muted); }
 
 .service-name-cell {
   display: flex;

@@ -1,14 +1,10 @@
 {
-    "version": "1.2.1",
-    "build_time": "2026-05-01T06:40:45Z",
+    "version": "1.2.2",
+    "build_time": "2026-05-01T07:00:00Z",
     "changes": [
-        "TUI redesign inspired by llmfit (Catppuccin Mocha + monospace + status bar)",
-        "Vim-style global shortcuts: 1-6 switch tabs, r refresh, / focus search, ? help",
-        "Standard services view migrated from cards to dense table layout",
-        "Custom service upload now streams progress (NDJSON) with per-stage status",
-        "Image references with uppercase letters are auto-retagged to arbore-<svc>:latest",
-        "Backend wraps Portainer network errors as 502 with detailed logs",
-        "New diagnostics endpoint /api/v1/diagnostics/portainer for 502 troubleshooting",
-        "index.html no longer fetches Google Fonts (full offline-friendly)"
+        "Restored arbore logo in the top-left brand area",
+        "All UI strings translated to English (license / resources / logs / system / custom services)",
+        "License page copy button uses solid primary style for clear contrast",
+        "Custom services view fully aligned with the Catppuccin Mocha theme tokens"
     ]
 }
