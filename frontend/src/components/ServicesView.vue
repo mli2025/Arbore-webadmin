@@ -97,7 +97,7 @@
 
         <el-table-column label="port" width="100">
           <template #default="{ row }">
-            <span v-if="row.port" class="text-info mono">:{{ row.port }}</span>
+            <span v-if="row.port" class="text-info mono">{{ row.port }}</span>
             <span v-else class="text-faint">—</span>
           </template>
         </el-table-column>

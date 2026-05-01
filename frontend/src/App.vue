@@ -240,7 +240,7 @@ const activateTab = (name) => {
 // ----------------------------------------------------------------------------
 // Header / status bar state
 // ----------------------------------------------------------------------------
-const apiVersion = ref('v1.2.2')
+const apiVersion = ref('v1.2.3')
 const buildTime = ref('')
 const hostName = ref(window.location.hostname || 'localhost')
 const portainerOk = ref(false)
@@ -263,6 +263,10 @@ const showChangelog = ref(false)
 const showHelp = ref(false)
 
 const changelog = [
+  { version: 'v1.2.3', date: '2026-05-01', title: 'Services port display tweak',
+    changes: [
+      'Services view port column now shows just the number (no leading colon)',
+    ] },
   { version: 'v1.2.2', date: '2026-05-01', title: 'English UI polish',
     changes: [
       'Restored arbore logo in the top-left brand area',

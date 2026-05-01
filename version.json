@@ -1,10 +1,7 @@
 {
-    "version": "1.2.2",
-    "build_time": "2026-05-01T07:00:00Z",
+    "version": "1.2.3",
+    "build_time": "2026-05-01T07:10:00Z",
     "changes": [
-        "Restored arbore logo in the top-left brand area",
-        "All UI strings translated to English (license / resources / logs / system / custom services)",
-        "License page copy button uses solid primary style for clear contrast",
-        "Custom services view fully aligned with the Catppuccin Mocha theme tokens"
+        "Services view port column now shows just the number (no leading colon)"
     ]
 }

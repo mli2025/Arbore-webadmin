@@ -70,8 +70,8 @@ from portainer_client import (
 
 # ---------------- 版本 / 应用 ----------------
 
-API_VERSION = "1.2.2"
-BUILD_TIME = "2026-05-01T07:00:00Z"
+API_VERSION = "1.2.3"
+BUILD_TIME = "2026-05-01T07:10:00Z"
 
 app = FastAPI(title="Arbore Web Admin API", version=API_VERSION)
 
