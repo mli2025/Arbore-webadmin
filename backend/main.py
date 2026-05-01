@@ -227,7 +227,7 @@ def _run_license_periodic_check() -> None:
             valid, _error_code, _ = validate_license(API_VERSION)
             if valid or not portainer.configured:
                 continue
-            for name in STANDARD_DOCKER_SERVICES:
+            for name in _standard_service_keys():
                 try:
                     _asyncio.run(portainer.container_stop(name, timeout=30))
                     logging.info("License invalid: stopped standard service %s", name)
@@ -720,16 +720,70 @@ async def update_system_ip():
 # 标准服务 (Standard services) - 通过 Portainer 操作, 不再修改 compose
 # ============================================================
 
-STANDARD_DOCKER_SERVICES: List[str] = [
-    "arbore-flow",
-    "arbore-func",
-    "arbore-postgres-nocobase",
-    "arbore-postgres-vector",
-    "arbore-ollama",
-    "arbore-ollama-webui",
-    "kanban-frontend",
-    "kanban-backend",
+# 标准服务种子配置：仅当 config/standard-services.json 不存在时用作首次写入
+# 之后所有读写都走配置文件，前端可通过齿轮按钮维护
+_STANDARD_SERVICES_DEFAULT: List[dict] = [
+    {"key": "arbore-flow", "display": "工作流服务",
+     "description": "n8n 工作流自动化引擎", "icon": "Connection", "port": 5678},
+    {"key": "arbore-func", "display": "应用服务",
+     "description": "NocoBase 业务应用平台", "icon": "Grid", "port": 13000},
+    {"key": "arbore-postgres-nocobase", "display": "PostgreSQL (应用数据库)",
+     "description": "NocoBase 业务数据存储", "icon": "Coin", "port": 0},
+    {"key": "arbore-postgres-vector", "display": "PostgreSQL (向量数据库)",
+     "description": "pgvector 向量检索数据库", "icon": "DataLine", "port": 0},
+    {"key": "arbore-ollama", "display": "AI模型服务",
+     "description": "Ollama 本地大模型推理引擎", "icon": "Cpu", "port": 11434},
+    {"key": "arbore-ollama-webui", "display": "AI模型界面",
+     "description": "Ollama Web UI 对话界面", "icon": "ChatDotRound", "port": 3000},
+    {"key": "kanban-frontend", "display": "看板前端服务",
+     "description": "看板系统前端界面", "icon": "Monitor", "port": 13050},
+    {"key": "kanban-backend", "display": "看板后端服务",
+     "description": "看板系统后端 API", "icon": "Service", "port": 13051},
 ]
+
+
+def _standard_services_config_path() -> str:
+    d = os.path.join(get_project_root(), "config")
+    os.makedirs(d, exist_ok=True)
+    return os.path.join(d, "standard-services.json")
+
+
+def _load_standard_services_config() -> List[dict]:
+    """读取标准服务配置；不存在则用默认值初始化并落盘。"""
+    path = _standard_services_config_path()
+    if not os.path.exists(path):
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(_STANDARD_SERVICES_DEFAULT, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logging.warning("Failed to seed %s: %s", path, e)
+        return list(_STANDARD_SERVICES_DEFAULT)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, list):
+            raise ValueError("config root must be a JSON array")
+        return data
+    except Exception as e:
+        logging.warning("Read %s failed (%s), fallback to defaults", path, e)
+        return list(_STANDARD_SERVICES_DEFAULT)
+
+
+def _save_standard_services_config(items: List[dict]) -> None:
+    path = _standard_services_config_path()
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(items, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
+
+
+def _standard_service_keys() -> List[str]:
+    return [str(it.get("key", "")).strip() for it in _load_standard_services_config()
+            if str(it.get("key", "")).strip()]
+
+
+# 兼容旧引用：保留为函数式属性，但所有内部判断改走 _standard_service_keys()
+STANDARD_DOCKER_SERVICES: List[str] = [it["key"] for it in _STANDARD_SERVICES_DEFAULT]
 
 SYSTEMD_SERVICES: List[str] = [
     "service-router",
@@ -740,7 +794,7 @@ SYSTEMD_SERVICES: List[str] = [
 
 
 def _is_standard_service(service_name: str) -> bool:
-    return service_name in STANDARD_DOCKER_SERVICES
+    return service_name in _standard_service_keys()
 
 
 def get_systemd_service_status(service_name: str) -> dict:
@@ -791,8 +845,9 @@ async def get_services():
     services: List[dict] = []
     license_valid, license_error_code, _ = validate_license(API_VERSION)
 
+    standard_keys = _standard_service_keys()
     if portainer.configured:
-        for name in STANDARD_DOCKER_SERVICES:
+        for name in standard_keys:
             try:
                 inspect = await portainer.container_inspect(name)
                 services.append(_inspect_to_status(name, inspect))
@@ -803,7 +858,7 @@ async def get_services():
                 services.append({"name": name, "status": "unknown",
                                  "health": "unknown", "ports": []})
     else:
-        for name in STANDARD_DOCKER_SERVICES:
+        for name in standard_keys:
             services.append({"name": name, "status": "unknown",
                              "health": "unknown", "ports": []})
 
@@ -815,6 +870,71 @@ async def get_services():
         "licenseValid": license_valid,
         "licenseErrorCode": license_error_code,
     }
+
+
+# ---------------- 标准服务展示配置（齿轮按钮维护） ----------------
+# 这里只读写 config/standard-services.json，不动任何容器
+# 同时暴露给前端：当用户增删改时影响 ServicesView 的卡片渲染、显示名、端口
+# Backend will also pick the same list as STANDARD service keys for start/stop
+# 权限校验和许可证联动均跟随该配置。
+_KEY_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$")
+
+
+def _normalize_standard_service_item(raw: dict) -> dict:
+    if not isinstance(raw, dict):
+        raise HTTPException(status_code=400, detail="Each item must be an object")
+    key = str(raw.get("key", "")).strip()
+    if not key or not _KEY_RE.match(key):
+        raise HTTPException(status_code=400,
+                            detail=f"Invalid service key: {key!r}")
+    display = str(raw.get("display", key)).strip() or key
+    description = str(raw.get("description", "")).strip()
+    icon = str(raw.get("icon", "")).strip()
+    port_raw = raw.get("port", 0)
+    try:
+        port = int(port_raw) if port_raw not in (None, "") else 0
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400,
+                            detail=f"Invalid port for {key!r}: {port_raw!r}")
+    if port < 0 or port > 65535:
+        raise HTTPException(status_code=400,
+                            detail=f"Port out of range for {key!r}: {port}")
+    return {
+        "key": key,
+        "display": display,
+        "description": description,
+        "icon": icon,
+        "port": port,
+    }
+
+
+@app.get("/api/v1/standard-services/config")
+async def get_standard_services_config():
+    items = _load_standard_services_config()
+    normalized: List[dict] = []
+    for it in items:
+        try:
+            normalized.append(_normalize_standard_service_item(it))
+        except HTTPException:
+            continue
+    return {"items": normalized}
+
+
+@app.put("/api/v1/standard-services/config")
+async def put_standard_services_config(payload: dict):
+    items = payload.get("items") if isinstance(payload, dict) else None
+    if not isinstance(items, list):
+        raise HTTPException(status_code=400,
+                            detail="Body must be {items: [...]}")
+    normalized: List[dict] = [_normalize_standard_service_item(it) for it in items]
+    seen = set()
+    for it in normalized:
+        if it["key"] in seen:
+            raise HTTPException(status_code=400,
+                                detail=f"Duplicate key: {it['key']}")
+        seen.add(it["key"])
+    _save_standard_services_config(normalized)
+    return {"items": normalized}
 
 
 @app.get("/api/v1/services/{service_name}")
