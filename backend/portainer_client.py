@@ -24,6 +24,7 @@ Optional:
 from __future__ import annotations
 
 import json
+import logging
 import os
 from typing import AsyncIterator, Dict, List, Optional
 
@@ -127,16 +128,37 @@ class PortainerClient:
         stream must be an async iterator yielding bytes. We pass it directly to
         httpx without buffering the whole file. Read timeout is disabled so
         large images do not trip the default 60s window.
+
+        网络层异常（DNS / TCP / 流写入错误）一律包成 PortainerError(502, ...)
+        并打印明确的日志，避免被 ASGI 默认 500 兜底 → nginx 502 但根因不可见。
         """
         url = f"{self.docker_base}/images/load?quiet={quiet}"
-        async with self._client(read_timeout=None, write_timeout=None) as cli:
-            r = await cli.post(
-                url,
-                content=stream,
-                headers=self._headers({"Content-Type": "application/x-tar"}),
+        logging.info("Portainer images/load: POST %s (configured=%s, endpoint_id=%s)",
+                     url, self.configured, self.endpoint_id)
+        try:
+            async with self._client(read_timeout=None, write_timeout=None) as cli:
+                r = await cli.post(
+                    url,
+                    content=stream,
+                    headers=self._headers({"Content-Type": "application/x-tar"}),
+                )
+                if r.status_code >= 400:
+                    logging.error(
+                        "Portainer images/load returned HTTP %s: %s",
+                        r.status_code, (r.text or "")[:500],
+                    )
+                self._raise_for_status(r)
+                logging.info("Portainer images/load OK, body=%s",
+                             (r.text or "")[:300])
+                return r.text or ""
+        except httpx.HTTPError as e:
+            logging.exception("Portainer images/load network error (url=%s): %s",
+                              url, e)
+            raise PortainerError(
+                502,
+                f"Portainer unreachable while loading image: "
+                f"{type(e).__name__}: {e}",
             )
-            self._raise_for_status(r)
-            return r.text or ""
 
     async def images_list(self) -> List[dict]:
         url = f"{self.docker_base}/images/json?all=0"

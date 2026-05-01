@@ -568,6 +568,109 @@
         </div>
       </template>
     </el-dialog>
+
+    <!--
+      Upload progress dialog
+      ------------------------------------------------------------------
+      Shown only while a tar is being uploaded for a new custom service.
+      Two progress bars are stacked so the user always sees motion:
+        1) browser -> webadmin-api (XHR upload progress event in bytes)
+        2) webadmin-api -> Portainer + container lifecycle (NDJSON events
+           streamed back from the backend via the same XHR channel)
+    -->
+    <el-dialog
+      v-model="uploadProgress.visible"
+      :title="uploadProgress.title"
+      width="540px"
+      :close-on-click-modal="false"
+      :close-on-press-escape="false"
+      :show-close="uploadProgress.finished"
+      class="upload-progress-dialog"
+      append-to-body
+    >
+      <div class="upload-progress-body">
+        <div class="up-section">
+          <div class="up-section-head">
+            <span class="up-section-title">浏览器 → 服务器（上传镜像）</span>
+            <span class="up-section-pct">{{ uploadProgress.uploadPct }}%</span>
+          </div>
+          <el-progress
+            :percentage="uploadProgress.uploadPct"
+            :status="uploadProgress.uploadStatus"
+            :stroke-width="14"
+          />
+          <div class="up-section-meta">
+            {{ formatBytes(uploadProgress.uploadedBytes) }}
+            <span v-if="uploadProgress.totalBytes"> / {{ formatBytes(uploadProgress.totalBytes) }}</span>
+            <span v-if="uploadProgress.uploadSpeed" class="up-speed">
+              · {{ formatBytes(uploadProgress.uploadSpeed) }}/s
+            </span>
+          </div>
+        </div>
+
+        <div class="up-section">
+          <div class="up-section-head">
+            <span class="up-section-title">服务器处理</span>
+            <span class="up-section-pct">{{ uploadProgress.serverPct }}%</span>
+          </div>
+          <el-progress
+            :percentage="uploadProgress.serverPct"
+            :status="uploadProgress.serverStatus"
+            :stroke-width="14"
+            :indeterminate="uploadProgress.serverIndeterminate"
+            :duration="3"
+          />
+          <div class="up-stages">
+            <div
+              v-for="stage in uploadProgress.stages"
+              :key="stage.key"
+              class="up-stage-row"
+              :class="['stage-' + stage.state]"
+            >
+              <el-icon class="up-stage-icon">
+                <component :is="stageIconFor(stage.state)" />
+              </el-icon>
+              <span class="up-stage-label">{{ stage.label }}</span>
+              <span v-if="stage.message" class="up-stage-msg">{{ stage.message }}</span>
+            </div>
+          </div>
+        </div>
+
+        <el-alert
+          v-if="uploadProgress.errorMessage"
+          type="error"
+          :closable="false"
+          show-icon
+          :title="'部署失败' + (uploadProgress.errorStage ? '（阶段：' + stageLabelOf(uploadProgress.errorStage) + '）' : '')"
+          :description="uploadProgress.errorMessage"
+          style="margin-top: 14px;"
+        />
+
+        <el-alert
+          v-if="uploadProgress.success"
+          type="success"
+          :closable="false"
+          show-icon
+          title="部署成功"
+          description="服务已部署并启动，可在列表中查看"
+          style="margin-top: 14px;"
+        />
+      </div>
+
+      <template #footer>
+        <el-button
+          v-if="!uploadProgress.finished"
+          type="danger"
+          plain
+          @click="cancelUpload"
+        >取消上传</el-button>
+        <el-button
+          v-if="uploadProgress.finished"
+          type="primary"
+          @click="closeUploadDialog"
+        >关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -583,7 +686,10 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 
 const setActiveTab = inject('setActiveTab', null)
 import * as ElementPlusIconsVue from '@element-plus/icons-vue'
-import { Search, Plus, Refresh, Upload } from '@element-plus/icons-vue'
+import {
+  Search, Plus, Refresh, Upload,
+  Loading, Check, CircleCheck, Clock, CircleClose,
+} from '@element-plus/icons-vue'
 
 const services = ref([])
 const loading = ref(false)
@@ -1132,12 +1238,8 @@ const submitService = async () => {
           formData.append('doc_file', serviceForm.docFile)
         }
 
-        await axios.post('/admin-api/api/v1/custom-services/upload', formData, {
-          headers: {
-            'Content-Type': 'multipart/form-data'
-          },
-          timeout: 7200000 // 2小时超时（大 tar 上传）
-        })
+        // 走流式上传：XHR 发请求，前端解析 NDJSON 事件实时显示进度
+        await uploadWithProgress(formData)
 
         ElMessage.success('服务部署成功')
       }
@@ -1148,9 +1250,16 @@ const submitService = async () => {
     } catch (error) {
       console.error('服务操作失败:', error)
       let errorMessage = '未知错误'
-      
+
+      if (error && error.isUploadFailure) {
+        // 流式上传里抛出的错误，已经在弹窗里展示，这里只静默 toast 简短提示
+        errorMessage = error.message || '上传失败'
+        ElMessage.error('部署服务失败: ' + errorMessage)
+        submitting.value = false
+        return
+      }
+
       if (error.response) {
-        // 服务器返回了错误响应
         const detail = error.response.data?.detail || error.response.data?.message
         if (detail) {
           errorMessage = detail
@@ -1158,13 +1267,11 @@ const submitService = async () => {
           errorMessage = `服务器错误: ${error.response.status} ${error.response.statusText}`
         }
       } else if (error.request) {
-        // 请求已发出但没有收到响应
         errorMessage = '无法连接到服务器，请检查后端服务是否运行'
       } else {
-        // 其他错误
         errorMessage = error.message || '未知错误'
       }
-      
+
       ElMessage.error(
         (editingService.value ? '更新' : '部署') +
         '服务失败: ' + errorMessage
@@ -1173,6 +1280,301 @@ const submitService = async () => {
       submitting.value = false
     }
   })
+}
+
+// ----------------------------------------------------------------------------
+// 流式上传 + 进度展示
+// ----------------------------------------------------------------------------
+// 后端返回 NDJSON：每行一个事件 {phase, message, ...}
+// 前端用 XHR 同步监听上传字节进度（xhr.upload.onprogress），并在 readyState=3
+// 时增量解析 responseText 中的 NDJSON 行，把阶段更新到 uploadProgress。
+const STAGE_DEFS = [
+  { key: 'validating',             label: '校验配置' },
+  { key: 'uploading_to_portainer', label: '传输到 Portainer 并加载镜像' },
+  { key: 'image_loaded',           label: '镜像加载完成', virtual: true },
+  { key: 'creating_container',     label: '创建容器' },
+  { key: 'starting_container',     label: '启动容器' },
+  { key: 'saving_doc',             label: '保存说明文档' },
+]
+
+const uploadProgress = reactive({
+  visible: false,
+  title: '部署服务',
+  finished: false,
+  success: false,
+  // 浏览器 -> 服务器 上传进度
+  uploadPct: 0,
+  uploadStatus: '',
+  uploadedBytes: 0,
+  totalBytes: 0,
+  uploadSpeed: 0,
+  // 服务器处理进度
+  serverPct: 0,
+  serverStatus: '',
+  serverIndeterminate: false,
+  stages: [],
+  // 错误
+  errorMessage: '',
+  errorStage: '',
+})
+
+let currentXhr = null
+let lastProgressTime = 0
+let lastProgressBytes = 0
+
+const initStages = () => {
+  uploadProgress.stages = STAGE_DEFS
+    .filter(s => !s.virtual)
+    .map(s => ({ key: s.key, label: s.label, state: 'pending', message: '' }))
+}
+
+const stageLabelOf = (key) => {
+  const s = STAGE_DEFS.find(x => x.key === key)
+  return s ? s.label : key
+}
+
+const stageIconFor = (state) => {
+  if (state === 'done') return CircleCheck
+  if (state === 'active') return Loading
+  if (state === 'error') return CircleClose
+  return Clock
+}
+
+const formatBytes = (b) => {
+  if (!b) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let v = b
+  let i = 0
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++ }
+  return v.toFixed(v >= 100 ? 0 : v >= 10 ? 1 : 2) + ' ' + units[i]
+}
+
+const setStageState = (key, state, message = '') => {
+  const s = uploadProgress.stages.find(x => x.key === key)
+  if (s) {
+    s.state = state
+    if (message) s.message = message
+  }
+}
+
+const advanceServerStageTo = (key, message = '') => {
+  // 把 key 之前的全部置为 done，key 自己置为 active，之后保持 pending
+  let hit = false
+  for (const s of uploadProgress.stages) {
+    if (s.key === key) {
+      s.state = 'active'
+      s.message = message
+      hit = true
+    } else if (!hit) {
+      if (s.state !== 'done') s.state = 'done'
+    }
+  }
+  // 计算服务器处理进度百分比（按已完成阶段数 / 总阶段数）
+  const total = uploadProgress.stages.length
+  const done = uploadProgress.stages.filter(s => s.state === 'done').length
+  uploadProgress.serverPct = Math.min(99, Math.round(((done + 0.4) / total) * 100))
+  uploadProgress.serverIndeterminate = false
+}
+
+const handleEvent = (ev) => {
+  switch (ev.phase) {
+    case 'validating':
+      advanceServerStageTo('validating', ev.message || '')
+      break
+    case 'uploading_to_portainer':
+      advanceServerStageTo('uploading_to_portainer', ev.message || '')
+      break
+    case 'image_loaded': {
+      // image_loaded 表示 uploading_to_portainer 已完成
+      const s = uploadProgress.stages.find(x => x.key === 'uploading_to_portainer')
+      if (s) { s.state = 'done'; s.message = ev.message || s.message }
+      break
+    }
+    case 'creating_container':
+      advanceServerStageTo('creating_container', ev.message || '')
+      break
+    case 'starting_container':
+      advanceServerStageTo('starting_container', ev.message || '')
+      break
+    case 'saving_doc':
+      advanceServerStageTo('saving_doc', ev.message || '')
+      break
+    case 'done':
+      uploadProgress.stages.forEach(s => {
+        if (s.state !== 'done' && (s.key !== 'saving_doc' || serviceForm.docFile)) {
+          s.state = 'done'
+        } else if (s.state !== 'done' && s.key === 'saving_doc') {
+          s.state = 'pending'
+        }
+      })
+      uploadProgress.serverPct = 100
+      uploadProgress.serverStatus = 'success'
+      uploadProgress.success = true
+      uploadProgress.finished = true
+      break
+    case 'error':
+      uploadProgress.errorMessage = ev.message || '未知错误'
+      uploadProgress.errorStage = ev.stage || ''
+      uploadProgress.serverStatus = 'exception'
+      uploadProgress.uploadStatus = uploadProgress.uploadPct >= 100 ? '' : 'exception'
+      // 把当前 active 的阶段置为 error
+      const active = uploadProgress.stages.find(s => s.state === 'active')
+      if (active) active.state = 'error'
+      else if (ev.stage) setStageState(ev.stage, 'error')
+      uploadProgress.finished = true
+      break
+    default:
+      // 未知事件类型直接忽略
+      break
+  }
+}
+
+const uploadWithProgress = (formData) => {
+  // 重置进度状态
+  uploadProgress.title = '部署服务'
+  uploadProgress.finished = false
+  uploadProgress.success = false
+  uploadProgress.uploadPct = 0
+  uploadProgress.uploadStatus = ''
+  uploadProgress.uploadedBytes = 0
+  uploadProgress.totalBytes = 0
+  uploadProgress.uploadSpeed = 0
+  uploadProgress.serverPct = 0
+  uploadProgress.serverStatus = ''
+  uploadProgress.serverIndeterminate = false
+  uploadProgress.errorMessage = ''
+  uploadProgress.errorStage = ''
+  initStages()
+  uploadProgress.visible = true
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    currentXhr = xhr
+    xhr.open('POST', '/admin-api/api/v1/custom-services/upload', true)
+    xhr.responseType = 'text'
+    xhr.timeout = 0  // 不超时（由用户主动取消）
+
+    let buffer = ''
+    let consumed = 0  // responseText 中已消费的字符数
+    lastProgressTime = Date.now()
+    lastProgressBytes = 0
+
+    xhr.upload.onprogress = (e) => {
+      if (!e.lengthComputable) return
+      uploadProgress.uploadedBytes = e.loaded
+      uploadProgress.totalBytes = e.total
+      uploadProgress.uploadPct = Math.min(100, Math.round((e.loaded / e.total) * 100))
+      const now = Date.now()
+      const dt = (now - lastProgressTime) / 1000
+      if (dt >= 0.5) {
+        const dB = e.loaded - lastProgressBytes
+        uploadProgress.uploadSpeed = Math.round(dB / dt)
+        lastProgressTime = now
+        lastProgressBytes = e.loaded
+      }
+    }
+    xhr.upload.onload = () => {
+      uploadProgress.uploadPct = 100
+      uploadProgress.uploadStatus = 'success'
+      // 上传完了，但服务器还在处理，给一个不确定动画
+      if (!uploadProgress.finished) uploadProgress.serverIndeterminate = true
+    }
+    xhr.upload.onerror = () => {
+      uploadProgress.uploadStatus = 'exception'
+    }
+
+    const drainBuffer = () => {
+      const text = xhr.responseText || ''
+      if (text.length <= consumed) return
+      const fresh = text.slice(consumed)
+      consumed = text.length
+      buffer += fresh
+      let idx
+      while ((idx = buffer.indexOf('\n')) !== -1) {
+        const line = buffer.slice(0, idx).trim()
+        buffer = buffer.slice(idx + 1)
+        if (!line) continue
+        try {
+          const ev = JSON.parse(line)
+          handleEvent(ev)
+        } catch (e) {
+          console.warn('Bad NDJSON line:', line, e)
+        }
+      }
+    }
+
+    xhr.onreadystatechange = () => {
+      if (xhr.readyState === 3) {
+        // 部分响应数据可读
+        try { drainBuffer() } catch (e) { console.error(e) }
+      } else if (xhr.readyState === 4) {
+        try { drainBuffer() } catch (e) { console.error(e) }
+        currentXhr = null
+        if (xhr.status === 0) {
+          // 用户主动取消或网络中断
+          if (!uploadProgress.errorMessage) {
+            uploadProgress.errorMessage = '已取消或网络中断'
+            uploadProgress.serverStatus = 'exception'
+            uploadProgress.uploadStatus = 'exception'
+            const active = uploadProgress.stages.find(s => s.state === 'active')
+            if (active) active.state = 'error'
+            uploadProgress.finished = true
+          }
+          reject(Object.assign(new Error(uploadProgress.errorMessage), { isUploadFailure: true }))
+          return
+        }
+        if (xhr.status >= 400) {
+          // 后端在还没开始流式响应前就报错（比如 502/504）
+          if (!uploadProgress.errorMessage) {
+            uploadProgress.errorMessage =
+              `服务器返回 ${xhr.status} ${xhr.statusText || ''}`.trim()
+            uploadProgress.serverStatus = 'exception'
+            uploadProgress.finished = true
+          }
+          reject(Object.assign(new Error(uploadProgress.errorMessage), { isUploadFailure: true }))
+          return
+        }
+        // 200，但要看最后一个事件
+        if (uploadProgress.errorMessage) {
+          reject(Object.assign(new Error(uploadProgress.errorMessage), { isUploadFailure: true }))
+        } else if (uploadProgress.success) {
+          resolve()
+        } else {
+          // 流结束但既没 done 也没 error，标记失败
+          uploadProgress.errorMessage = '响应非法结束（既未完成也未报错）'
+          uploadProgress.serverStatus = 'exception'
+          uploadProgress.finished = true
+          reject(Object.assign(new Error(uploadProgress.errorMessage), { isUploadFailure: true }))
+        }
+      }
+    }
+
+    xhr.onerror = () => {
+      uploadProgress.errorMessage = '网络请求失败'
+      uploadProgress.serverStatus = 'exception'
+      uploadProgress.uploadStatus = 'exception'
+      uploadProgress.finished = true
+    }
+
+    xhr.send(formData)
+  })
+}
+
+const cancelUpload = async () => {
+  try {
+    await ElMessageBox.confirm(
+      '确定要取消上传吗？已经传输到服务器的内容会丢失。',
+      '取消上传',
+      { type: 'warning', confirmButtonText: '取消上传', cancelButtonText: '继续等待' },
+    )
+  } catch { return }
+  if (currentXhr) {
+    try { currentXhr.abort() } catch {}
+  }
+}
+
+const closeUploadDialog = () => {
+  uploadProgress.visible = false
 }
 
 const editService = async (service) => {
@@ -1830,6 +2232,107 @@ onMounted(() => {
   color: #94a3b8;
   white-space: pre-wrap;
   word-wrap: break-word;
+}
+
+/* ----------------------------------------------------------------------------
+   Upload progress dialog (dark theme)
+   ---------------------------------------------------------------------------- */
+.upload-progress-dialog :deep(.el-dialog) {
+  background: #0f172a;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+}
+.upload-progress-dialog :deep(.el-dialog__header) {
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+  margin: 0;
+  padding: 18px 24px;
+}
+.upload-progress-dialog :deep(.el-dialog__title) { color: #f1f5f9; font-weight: 600; }
+.upload-progress-dialog :deep(.el-dialog__body) { padding: 20px 24px; }
+.upload-progress-dialog :deep(.el-dialog__footer) {
+  border-top: 1px solid rgba(148, 163, 184, 0.12);
+  padding: 14px 24px;
+}
+
+.upload-progress-body { color: #e2e8f0; }
+
+.up-section {
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+}
+.up-section:last-child { margin-bottom: 0; }
+
+.up-section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.up-section-title {
+  font-size: 13px;
+  color: #cbd5e1;
+  font-weight: 500;
+}
+.up-section-pct {
+  font-size: 13px;
+  color: #10b981;
+  font-weight: 600;
+  font-family: 'JetBrains Mono', 'Consolas', monospace;
+}
+
+.up-section-meta {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #94a3b8;
+  font-family: 'JetBrains Mono', 'Consolas', monospace;
+}
+.up-speed { color: #60a5fa; margin-left: 6px; }
+
+.up-stages {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.up-stage-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  font-size: 12.5px;
+  color: #94a3b8;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+.up-stage-row.stage-active {
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.08);
+}
+.up-stage-row.stage-done { color: #34d399; }
+.up-stage-row.stage-error {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.08);
+}
+.up-stage-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+.up-stage-row.stage-active .up-stage-icon {
+  animation: arbore-spin 1.2s linear infinite;
+}
+@keyframes arbore-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.up-stage-label { flex-shrink: 0; }
+.up-stage-msg {
+  margin-left: auto;
+  font-size: 11.5px;
+  color: #64748b;
+  font-family: 'JetBrains Mono', 'Consolas', monospace;
 }
 
 </style>

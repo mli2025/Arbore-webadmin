@@ -47,7 +47,7 @@ from typing import AsyncIterator, Dict, List, Optional, Tuple
 import psutil
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from packaging import version as pkg_version
 from pydantic import BaseModel
 
@@ -189,6 +189,46 @@ async def get_version():
         "portainer_reachable": portainer_ok,
         "portainer_endpoint_id": portainer.endpoint_id,
     }
+
+
+@app.get("/api/v1/diagnostics/portainer")
+async def diagnostics_portainer():
+    """诊断端点：详细返回 Portainer 配置和连通性，便于排查 502。
+
+    Reports raw URL/endpoint, configured flag, ping result, and the first
+    docker engine probe. Helpful when /images/load returns 502 and you need
+    to know whether it's DNS, auth, endpoint id or something else.
+    """
+    info: dict = {
+        "base_url": portainer.base_url,
+        "configured": portainer.configured,
+        "endpoint_id": portainer.endpoint_id,
+        "verify_ssl": portainer.verify_ssl,
+        "timeout": portainer.timeout,
+    }
+    if not portainer.configured:
+        info["error"] = "PORTAINER_URL or PORTAINER_API_KEY missing"
+        return info
+
+    import httpx as _httpx
+    try:
+        async with portainer._client(read_timeout=10.0) as cli:  # type: ignore
+            r = await cli.get(
+                f"{portainer.base_url}/api/system/status",
+                headers=portainer._headers(),  # type: ignore
+            )
+            info["system_status_code"] = r.status_code
+            info["system_status_body"] = (r.text or "")[:300]
+        async with portainer._client(read_timeout=10.0) as cli:  # type: ignore
+            r2 = await cli.get(
+                f"{portainer.docker_base}/_ping",
+                headers=portainer._headers(),  # type: ignore
+            )
+            info["docker_ping_code"] = r2.status_code
+            info["docker_ping_body"] = (r2.text or "")[:300]
+    except _httpx.HTTPError as e:
+        info["error"] = f"{type(e).__name__}: {e}"
+    return info
 
 
 # ============================================================
@@ -1423,17 +1463,35 @@ async def _recreate_container(spec: dict) -> None:
 async def _upload_file_to_portainer_load(upload: UploadFile) -> str:
     """Stream a FastAPI UploadFile into Portainer /images/load without buffering."""
     chunk_size = 1024 * 1024  # 1 MiB per chunk
+    total = 0
 
     async def _iter() -> AsyncIterator[bytes]:
+        nonlocal total
         while True:
-            data = await upload.read(chunk_size)
+            try:
+                data = await upload.read(chunk_size)
+            except Exception as ex:  # client disconnect / spool I/O fail
+                logging.exception("Read upload chunk failed at %d bytes: %s",
+                                  total, ex)
+                raise
             if not data:
                 break
+            total += len(data)
             yield data
+        logging.info("Tar upload streamed to Portainer: %d bytes (%.2f MB)",
+                     total, total / (1024 * 1024))
     try:
         return await portainer.images_load_stream(_iter())
     except PortainerError as e:
+        logging.error("Tar upload -> Portainer failed (status=%s): %s",
+                      e.status_code, e.message)
         raise _portainer_error_to_http(e)
+    except Exception as e:
+        logging.exception("Tar upload unexpected error: %s", e)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Tar upload internal error: {type(e).__name__}: {e}",
+        )
 
 
 def _extract_loaded_image_tag(body_text: str, fallback: str) -> str:
@@ -1559,72 +1617,146 @@ async def upload_custom_service(
     memory_reservation_mb: int = Form(None),
     doc_file: UploadFile = File(None),
 ):
-    """Streaming tar upload -> Portainer images/load -> containers/create + start."""
-    _license_valid_or_403()
-    _require_portainer()
-    _validate_name(name)
-    _validate_port(port)
+    """Streaming tar upload -> Portainer images/load -> containers/create + start.
 
-    if os.path.exists(_custom_service_spec_path(name)):
-        raise HTTPException(status_code=400, detail=f"Service name '{name}' already exists")
-    port_to_name, _ = await _collect_used_ports()
-    owner = port_to_name.get(port)
-    if owner:
-        raise HTTPException(status_code=400,
-                            detail=f"Port {port} already used by service '{owner}'")
+    Returns NDJSON streaming response: each line is a JSON event with at least
+    a "phase" field, allowing the frontend to render fine-grained progress and
+    surface failures the moment they occur.
 
-    env_map = _parse_env_json(env_vars)
-    volumes_list = _parse_volumes_json(volumes)
+    Event shapes:
+        {"phase": "validating",            "message": "..."}
+        {"phase": "uploading_to_portainer","message": "..."}
+        {"phase": "image_loaded",          "image": "x:y",  "message": "..."}
+        {"phase": "creating_container",    "message": "..."}
+        {"phase": "starting_container",    "message": "..."}
+        {"phase": "saving_doc",            "message": "..."}
+        {"phase": "done",                  "service": {...}, "message": "..."}
+        {"phase": "error",                 "stage": "...",   "status": int,
+         "message": "..."}
+    """
+    async def _gen() -> AsyncIterator[bytes]:
+        def _ev(**kwargs) -> bytes:
+            return (json.dumps(kwargs, ensure_ascii=False) + "\n").encode("utf-8")
 
-    # 1) Stream tar into Portainer (no full-file buffering)
-    load_body = await _upload_file_to_portainer_load(file)
-    image_tag = _extract_loaded_image_tag(load_body, fallback=f"{name}:latest")
+        current_stage = "init"
 
-    # 2) Build and persist spec
-    spec = _default_spec(name)
-    spec.update({
-        "description": description,
-        "icon": icon or "Box",
-        "image": image_tag,
-        "host_port": port,
-        "container_port": int(container_port) if container_port else port,
-        "env_vars": env_map,
-        "volumes": volumes_list,
-        "memory_limit_mb": int(memory_limit_mb) if memory_limit_mb else None,
-        "memory_reservation_mb": int(memory_reservation_mb) if memory_reservation_mb else None,
-        "has_doc": False,
-    })
-    _custom_service_config_dir(name)  # ensure dir
-    _write_env_file(name, env_map)
-    _write_spec(name, spec)
+        try:
+            current_stage = "validating"
+            yield _ev(phase="validating", message="校验服务名与端口")
+            _license_valid_or_403()
+            _require_portainer()
+            _validate_name(name)
+            _validate_port(port)
 
-    # 3) Create & start container
-    try:
-        await _create_and_start(spec)
-    except HTTPException:
-        # Keep spec so user can retry or diagnose. Do not clean the image automatically.
-        raise
+            if os.path.exists(_custom_service_spec_path(name)):
+                raise HTTPException(status_code=400,
+                                    detail=f"Service name '{name}' already exists")
+            port_to_name, _unused = await _collect_used_ports()
+            owner = port_to_name.get(port)
+            if owner:
+                raise HTTPException(status_code=400,
+                                    detail=f"Port {port} already used by service '{owner}'")
 
-    # 4) Optional doc.pdf
-    if doc_file is not None and doc_file.filename:
-        if doc_file.filename.lower().endswith(".pdf"):
-            doc_path = _custom_service_doc_path(name)
-            with open(doc_path, "wb") as df:
-                shutil.copyfileobj(doc_file.file, df)
-            spec["has_doc"] = True
+            env_map = _parse_env_json(env_vars)
+            volumes_list = _parse_volumes_json(volumes)
+
+            current_stage = "uploading_to_portainer"
+            yield _ev(phase="uploading_to_portainer",
+                      message="正在将镜像传输到 Portainer 并加载")
+            load_body = await _upload_file_to_portainer_load(file)
+            image_tag = _extract_loaded_image_tag(load_body, fallback=f"{name}:latest")
+            yield _ev(phase="image_loaded", image=image_tag,
+                      message=f"镜像加载成功: {image_tag}")
+
+            current_stage = "writing_spec"
+            spec = _default_spec(name)
+            spec.update({
+                "description": description,
+                "icon": icon or "Box",
+                "image": image_tag,
+                "host_port": port,
+                "container_port": int(container_port) if container_port else port,
+                "env_vars": env_map,
+                "volumes": volumes_list,
+                "memory_limit_mb": int(memory_limit_mb) if memory_limit_mb else None,
+                "memory_reservation_mb": int(memory_reservation_mb) if memory_reservation_mb else None,
+                "has_doc": False,
+            })
+            _custom_service_config_dir(name)
+            _write_env_file(name, env_map)
             _write_spec(name, spec)
 
-    return {
-        "success": True,
-        "message": f"Service {name} deployed on port {port}",
-        "service": {
-            "name": name,
-            "port": port,
-            "endpoint": f"/{name}",
-            "description": description,
-            "image_name": image_tag,
+            current_stage = "creating_container"
+            yield _ev(phase="creating_container", message="创建容器中")
+            container_name = _container_name_for(name)
+            body = _build_create_config(spec)
+            if ARBORE_NETWORK_NAME and not await portainer.network_exists(ARBORE_NETWORK_NAME):
+                body.pop("NetworkingConfig", None)
+            try:
+                await portainer.container_create(container_name, body)
+            except PortainerError as e:
+                raise _portainer_error_to_http(e)
+
+            current_stage = "starting_container"
+            yield _ev(phase="starting_container", message="启动容器中")
+            try:
+                await portainer.container_start(container_name)
+            except PortainerError as e:
+                # roll back dangling container
+                try:
+                    await portainer.container_remove(container_name, force=True)
+                except Exception:  # pragma: no cover - best effort
+                    pass
+                raise _portainer_error_to_http(e)
+
+            if doc_file is not None and doc_file.filename:
+                if doc_file.filename.lower().endswith(".pdf"):
+                    current_stage = "saving_doc"
+                    yield _ev(phase="saving_doc", message="保存说明文档")
+                    doc_path = _custom_service_doc_path(name)
+                    with open(doc_path, "wb") as df:
+                        shutil.copyfileobj(doc_file.file, df)
+                    spec["has_doc"] = True
+                    _write_spec(name, spec)
+
+            yield _ev(
+                phase="done",
+                message=f"服务 {name} 部署成功",
+                service={
+                    "name": name,
+                    "port": port,
+                    "endpoint": f"/{name}",
+                    "description": description,
+                    "image_name": image_tag,
+                },
+            )
+        except HTTPException as he:
+            logging.error("Upload custom service '%s' failed at %s: %s",
+                          name, current_stage, he.detail)
+            yield _ev(phase="error", stage=current_stage,
+                      status=he.status_code, message=str(he.detail))
+        except PortainerError as pe:
+            logging.error("Upload custom service '%s' Portainer error at %s: %s",
+                          name, current_stage, pe.message)
+            yield _ev(phase="error", stage=current_stage,
+                      status=pe.status_code, message=pe.message)
+        except Exception as e:  # pragma: no cover - safety net
+            logging.exception("Upload custom service '%s' unexpected error at %s",
+                              name, current_stage)
+            yield _ev(phase="error", stage=current_stage,
+                      status=500,
+                      message=f"{type(e).__name__}: {e}")
+
+    # X-Accel-Buffering: no -> tell nginx not to buffer the streaming response
+    # so the frontend can render progress events in real time.
+    return StreamingResponse(
+        _gen(),
+        media_type="application/x-ndjson",
+        headers={
+            "X-Accel-Buffering": "no",
+            "Cache-Control": "no-cache",
         },
-    }
+    )
 
 
 @app.delete("/api/v1/custom-services/{service_name}")
