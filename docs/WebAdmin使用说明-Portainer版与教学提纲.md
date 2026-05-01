@@ -131,3 +131,62 @@
 
 - 当前后端版本号、构建时间以界面 **版本号** 及接口 `/api/v1/version` 返回为准。
 - 若产品再增模块（例如更多诊断页、更多策略），建议在本文对应章节增补，并保持 PPT 目录与之一致。
+
+---
+
+## 10. 发版必检清单（Release Checklist）
+
+> **每一次合并入主分支或对外发版，都必须保证下面三处版本号一致，并且 changelog 已更新。**
+
+### 10.1 三处版本号同步
+
+| 位置 | 含义 | 备注 |
+|------|------|------|
+| `backend/main.py::API_VERSION` | 运行时返回 `/api/v1/version` 的版本 | 权威源 |
+| `version.json` | OTA 客户端拉取的版本清单 | 必须与 `API_VERSION` 一致 |
+| `frontend/src/App.vue::apiVersion` + `changelog` 列表 | 顶部版本徽章 + 「changelog」弹窗 | 必须包含本版本号的条目 |
+
+### 10.2 一条命令同步（不要再手改 BUILD_TIME / version.json）
+
+```powershell
+# 步骤 1：手动改 backend/main.py 的 API_VERSION（语义化升版）
+# 步骤 2：手动在 frontend/src/App.vue 的 changelog 数组顶部加一条新版本说明
+# 步骤 3：运行同步脚本
+py update-build-time.py
+```
+
+脚本会自动：
+
+- 把 `BUILD_TIME` 刷成当前 UTC ISO-8601 时间戳
+- 把 `version.json` 的 `version` 与 `build_time` 同步到与 `API_VERSION` 一致
+- 校验 `App.vue` 是否已经包含本版本号的 changelog 条目，**漏写会输出警告**
+
+### 10.3 校验模式（建议接到 CI / pre-commit）
+
+```powershell
+py update-build-time.py --check
+```
+
+任何不一致退出码非 0：
+
+- 退出码 `2`：`App.vue` 找不到当前版本号或 changelog 缺条目
+- 退出码 `3`：`version.json` 与 `API_VERSION` 不一致
+
+### 10.4 changelog 写法约定
+
+`frontend/src/App.vue` 的 `changelog` 数组顶部加一项即可，格式：
+
+```js
+{ version: 'v1.2.1', date: '2026-05-01', title: 'one-line title',
+  changes: [
+    'item 1 ...',
+    'item 2 ...',
+  ] },
+```
+
+约束：
+
+- 永远把新版本插入数组**最前面**（最新在最上）。
+- `changes` 用动词起始的英文短句或简明中文短句。
+- 若有破坏性变更，请在条目前加 `BREAKING:`。
+- `version.json::changes` 与 `App.vue::changelog` 的内容应基本一致（前者面向 OTA 弹窗，后者面向用户 Changelog 弹窗），保持手动同步。

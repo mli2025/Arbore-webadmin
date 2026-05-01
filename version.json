@@ -1,7 +1,14 @@
 {
-    "version":  "1.1.5",
-    "build_time":  "2026-03-31",
-    "changes":  [
-                    "OTA package; API_VERSION=1.1.5 in backend/main.py"
-                ]
+    "version": "1.2.1",
+    "build_time": "2026-05-01T06:40:45Z",
+    "changes": [
+        "TUI redesign inspired by llmfit (Catppuccin Mocha + monospace + status bar)",
+        "Vim-style global shortcuts: 1-6 switch tabs, r refresh, / focus search, ? help",
+        "Standard services view migrated from cards to dense table layout",
+        "Custom service upload now streams progress (NDJSON) with per-stage status",
+        "Image references with uppercase letters are auto-retagged to arbore-<svc>:latest",
+        "Backend wraps Portainer network errors as 502 with detailed logs",
+        "New diagnostics endpoint /api/v1/diagnostics/portainer for 502 troubleshooting",
+        "index.html no longer fetches Google Fonts (full offline-friendly)"
+    ]
 }

@@ -239,7 +239,7 @@ const activateTab = (name) => {
 // ----------------------------------------------------------------------------
 // Header / status bar state
 // ----------------------------------------------------------------------------
-const apiVersion = ref('v1.2.0')
+const apiVersion = ref('v1.2.1')
 const buildTime = ref('')
 const hostName = ref(window.location.hostname || 'localhost')
 const portainerOk = ref(false)
@@ -262,12 +262,17 @@ const showChangelog = ref(false)
 const showHelp = ref(false)
 
 const changelog = [
-  { version: 'v1.2.0', date: '2026-05-01', title: 'TUI redesign + streaming upload',
+  { version: 'v1.2.1', date: '2026-05-01', title: 'TUI redesign + streaming upload',
     changes: [
-      'Catppuccin Mocha theme inspired by llmfit, monospace UI',
-      'Custom service upload now streams progress via NDJSON',
-      'Standard services are now configurable via the gear icon',
-      'Image references with uppercase letters are auto-retagged',
+      'TUI redesign inspired by llmfit (Catppuccin Mocha + monospace UI)',
+      'Vim-style shortcuts: 1-6 switch tabs, r refresh, / search, ? help',
+      'Standard services view migrated from cards to dense table layout',
+      'Custom service upload now streams progress (NDJSON) with per-stage status',
+      'Image references with uppercase letters auto-retagged to arbore-<svc>:latest',
+      'Portainer network errors wrapped as 502 with detailed logs',
+      'New diagnostics endpoint /api/v1/diagnostics/portainer',
+      'Standard services configurable via the gear icon (config/standard-services.json)',
+      'Removed Google Fonts CDN call (fully offline-friendly)',
     ] },
   { version: 'v1.1.5', date: '2026-03-31', title: 'OTA refinements',
     changes: [
