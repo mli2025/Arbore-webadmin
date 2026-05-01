@@ -680,11 +680,16 @@
 // 1) 通过 /admin-api/api/v1/custom-services 系列接口，完成服务的增删改查；
 // 2) 在表单中收集镜像、端口、环境变量、卷挂载等与容器编排直接相关的信息；
 // 3) 集成许可证校验逻辑，确保仅在已注册授权的环境中开启自定义服务功能。
-import { ref, reactive, computed, onMounted, nextTick, watch, inject } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch, inject } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
-const setActiveTab = inject('setActiveTab', null)
+const setActiveTab     = inject('setActiveTab',     null)
+const registerRefresh  = inject('registerRefresh',  null)
+const unregisterRefresh = inject('unregisterRefresh', null)
+const registerSearch   = inject('registerSearch',   null)
+const unregisterSearch = inject('unregisterSearch', null)
+const TAB_NAME = 'custom-services'
 import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 import {
   Search, Plus, Refresh, Upload,
@@ -1809,59 +1814,80 @@ const handleDialogClose = () => {
   resetForm()
 }
 
+// Hook into the global TUI shell shortcuts so pressing `r` refreshes this tab.
+// We deliberately do not register a search hook here yet because the existing
+// page already has its own filter input; revisit if that input gets a ref.
 onMounted(() => {
   refreshServices()
+  if (registerRefresh) registerRefresh(TAB_NAME, refreshServices)
+})
+onBeforeUnmount(() => {
+  if (unregisterRefresh) unregisterRefresh(TAB_NAME)
+  if (unregisterSearch)  unregisterSearch(TAB_NAME)
 })
 </script>
 
 <style scoped>
+/* Custom services view - tuned to match the global Catppuccin Mocha theme.
+   Most heavy lifting is done by the global Element Plus variable overrides
+   in src/styles/arbore-theme.css; rules here only touch the few page-level
+   tokens that don't have a global equivalent. */
 .custom-services-view {
   padding: 0;
+  font-family: var(--font-mono);
+  color: var(--fg-text);
 }
 
 .page-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  margin-bottom: 24px;
-  padding: 20px 0;
+  margin-bottom: 18px;
+  padding: 4px 0 12px;
+  border-bottom: 1px solid var(--border);
 }
 
 .header-title h2 {
-  font-size: 24px;
+  font-size: 14px;
   font-weight: 600;
-  color: #f1f5f9;
-  margin: 0 0 8px 0;
+  color: var(--fg-text);
+  margin: 0 0 4px 0;
+  text-transform: lowercase;
+  letter-spacing: 1.5px;
+}
+.header-title h2::before {
+  content: '┃ ';
+  color: var(--accent);
 }
 
 .header-desc {
-  font-size: 14px;
-  color: #94a3b8;
+  font-size: 12px;
+  color: var(--fg-muted);
   margin: 0;
 }
 
 .services-card {
-  background: rgba(30, 41, 59, 0.5);
-  border: 1px solid rgba(148, 163, 184, 0.1);
-  border-radius: 8px;
+  background: var(--bg-mantle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-tile);
 }
 
 .services-card :deep(.el-card__header) {
-  background: rgba(15, 23, 42, 0.5);
-  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
-  padding: 16px 20px;
+  background: var(--bg-base);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 16px;
 }
 
 .services-card :deep(.el-card__body) {
-  padding: 20px;
-  background: rgba(30, 41, 59, 0.3);
+  padding: 16px;
+  background: transparent;
 }
 
 .card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  color: #f1f5f9;
+  color: var(--fg-text);
   font-weight: 500;
 }
 
@@ -1872,17 +1898,18 @@ onMounted(() => {
 }
 
 .service-icon {
-  color: #10b981;
+  color: var(--accent);
   font-size: 16px;
 }
 
 .description-text {
-  color: #94a3b8;
+  color: var(--fg-muted);
+  font-size: 12px;
 }
 
 .form-tip {
-  font-size: 12px;
-  color: #94a3b8;
+  font-size: 11.5px;
+  color: var(--fg-muted);
   margin-top: 4px;
   background: transparent;
   padding: 0;
@@ -1893,8 +1920,8 @@ onMounted(() => {
 }
 
 .form-error {
-  font-size: 12px;
-  color: #f56565;
+  font-size: 11.5px;
+  color: var(--mocha-red);
   margin-top: 4px;
 }
 
