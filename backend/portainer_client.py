@@ -179,6 +179,26 @@ class PortainerClient:
                 return
             self._raise_for_status(r)
 
+    async def image_tag(self, name_or_id: str, *, repo: str, tag: str = "latest") -> None:
+        """POST /images/{name}/tag - assign a new repo:tag to an existing image.
+
+        Docker rejects image references with uppercase letters in the repo part
+        or any non-conforming character. We use this to normalise whatever
+        reference the uploaded tar carried into a stable ``arbore-<svc>:latest``
+        form before container creation.
+        """
+        url = f"{self.docker_base}/images/{name_or_id}/tag"
+        async with self._client() as cli:
+            r = await cli.post(
+                url,
+                params={"repo": repo, "tag": tag},
+                headers=self._headers(),
+            )
+            # Docker returns 201 Created on success
+            if r.status_code in (201, 200):
+                return
+            self._raise_for_status(r)
+
     # ---------------- containers ----------------
 
     async def containers_list(self, *, all: bool = True,

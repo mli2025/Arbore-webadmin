@@ -1494,37 +1494,110 @@ async def _upload_file_to_portainer_load(upload: UploadFile) -> str:
         )
 
 
-def _extract_loaded_image_tag(body_text: str, fallback: str) -> str:
-    """Parse Portainer /images/load streaming response for 'Loaded image:' lines.
+def _extract_loaded_image_info(body_text: str) -> Tuple[Optional[str], Optional[str]]:
+    """Parse Portainer /images/load streaming response.
 
-    Response body is a stream of JSON objects or Docker-style plain text such
-    as 'Loaded image: myimage:latest\\n'. We tolerate both forms.
+    Returns ``(image_ref, image_id)`` where:
+      * image_ref is the human readable ``repo:tag`` if Docker found one in
+        the tar manifest (may still be invalid by Docker reference rules,
+        e.g. contain uppercase letters);
+      * image_id is the ``sha256:...`` digest reported by Docker, used as a
+        stable handle for retagging when image_ref is missing or invalid.
+
+    Either field can be ``None`` if Docker did not emit the corresponding line.
     """
-    tag: Optional[str] = None
+    image_ref: Optional[str] = None
+    image_id: Optional[str] = None
+
+    def _scan(text: str) -> None:
+        nonlocal image_ref, image_id
+        m_id = re.search(r"Loaded image ID:\s*([^\s]+)", text)
+        if m_id:
+            image_id = m_id.group(1)
+            return
+        m_ref = re.search(r"Loaded image:\s*([^\s]+)", text)
+        if m_ref:
+            image_ref = m_ref.group(1)
+
     for line in (body_text or "").splitlines():
         line = line.strip()
         if not line:
             continue
-        # Plain text form
-        m = re.search(r"Loaded image(?: ID)?:\s*([^\s]+)", line)
-        if m:
-            tag = m.group(1)
-            continue
-        # JSON form from Docker
+        _scan(line)
         try:
             obj = json.loads(line)
         except Exception:
             continue
-        stream = obj.get("stream") or obj.get("status") or ""
-        m = re.search(r"Loaded image(?: ID)?:\s*([^\s]+)", stream)
-        if m:
-            tag = m.group(1)
-    if not tag:
-        return fallback
-    # Ignore raw image IDs (sha256:...) - they can't be used as Image in create
-    if tag.startswith("sha256:"):
-        return fallback
-    return tag
+        _scan(obj.get("stream") or obj.get("status") or "")
+
+    return image_ref, image_id
+
+
+# Docker reference grammar (simplified): repository part must be all lowercase,
+# tag may contain letters/digits/._- with a leading [a-zA-Z0-9_]. This regex is
+# strict enough to catch the common failure modes (uppercase repo, weird
+# punctuation, missing tag) that produce "invalid reference format" later in
+# /containers/create.
+_VALID_IMAGE_REF_RE = re.compile(
+    r"^"
+    r"[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*"
+    r"(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*"
+    r"(?::[a-zA-Z0-9_][a-zA-Z0-9._-]{0,127})?"
+    r"$"
+)
+
+
+def _is_valid_image_ref(ref: Optional[str]) -> bool:
+    if not ref:
+        return False
+    if ref.startswith("sha256:"):
+        return False  # raw digest cannot be used as Image in create
+    return bool(_VALID_IMAGE_REF_RE.match(ref))
+
+
+async def _resolve_image_for_create(load_body: str, service_name: str) -> str:
+    """Determine a Docker-valid image reference for the freshly loaded tar.
+
+    Strategy:
+      1. Parse Portainer /images/load output for image_ref and image_id.
+      2. If the parsed image_ref already matches Docker's reference grammar,
+         keep it as is.
+      3. Otherwise, retag the loaded image to ``arbore-<service>:latest`` so
+         downstream container creation always uses a sane reference.
+    """
+    image_ref, image_id = _extract_loaded_image_info(load_body)
+    logging.info(
+        "Image load parsed: ref=%r id=%r (service=%s)",
+        image_ref, image_id, service_name,
+    )
+
+    if _is_valid_image_ref(image_ref):
+        return image_ref  # type: ignore[return-value]
+
+    handle = image_id or image_ref
+    if not handle:
+        raise HTTPException(
+            status_code=500,
+            detail="Could not determine loaded image from Portainer response",
+        )
+    handle = handle.replace("sha256:", "") if handle.startswith("sha256:") else handle
+
+    target_repo = f"arbore-{service_name}"
+    target_tag = "latest"
+    target_ref = f"{target_repo}:{target_tag}"
+    logging.warning(
+        "Image ref %r is not a valid Docker reference, retagging %s as %s",
+        image_ref, handle, target_ref,
+    )
+    try:
+        await portainer.image_tag(handle, repo=target_repo, tag=target_tag)
+    except PortainerError as e:
+        raise HTTPException(
+            status_code=500,
+            detail=(f"Failed to retag loaded image (handle={handle}, "
+                    f"target={target_ref}): {e.message}"),
+        )
+    return target_ref
 
 
 # -------------------- endpoints --------------------
@@ -1664,7 +1737,7 @@ async def upload_custom_service(
             yield _ev(phase="uploading_to_portainer",
                       message="正在将镜像传输到 Portainer 并加载")
             load_body = await _upload_file_to_portainer_load(file)
-            image_tag = _extract_loaded_image_tag(load_body, fallback=f"{name}:latest")
+            image_tag = await _resolve_image_for_create(load_body, name)
             yield _ev(phase="image_loaded", image=image_tag,
                       message=f"镜像加载成功: {image_tag}")
 
